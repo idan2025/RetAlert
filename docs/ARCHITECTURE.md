@@ -28,7 +28,7 @@ retalert/
     discover.py           heard-announce cache + starred set, RNS handler (step 6)
     live_tracks.py        incoming live-share store + tap-to-follow (step 8)
     incoming.py           receive filter + geo/alert parse + bypass-silent hook (steps 8-9)
-    media_channel.py      stub — audio/photo over RNS Link (step 13)
+    media_channel.py      chunked photo + audio stream over RNS Link seam (step 13)
     transport_intel.py    interface classify/rank/fanout/failover (steps 3-4)
 ```
 
@@ -46,7 +46,7 @@ retalert/
 10. Preset system + on-screen panic button (Kivy) — preset backend **done** (Preset/PresetStore/PanicEngine/PresetResolver + CLI preset/panic); on-screen button + hold-to-confirm UI deferred (Kivy)
 11. Dynamic hardware-key capture
 12. Shared-instance attach (Sideband/Columba/MeshChat/MeshChatX) — **done** (SharedInstanceManager: local socket or TCPClientInterface, RNS config render, host-identity reuse; CLI share attach/status/detach)
-13. Audio/photo channel over raw RNS link
+13. Audio/photo channel over raw RNS link — **done** (MediaChannel: chunked photo reassembly + audio stream, tier-gated High-only, LinkAdapter seam for live RNS.Link)
 14. Desktop UI pass + interface-chip status bar
 15. Hardening, persistence, docs
 

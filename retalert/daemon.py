@@ -26,6 +26,7 @@ from .core.live_tracks import LiveTrackStore
 from .core.incoming import IncomingDispatcher, encode_alert
 from .core.preset import Preset, PresetStore
 from .core.panic_engine import PanicEngine, PresetResolver
+from .core.media_channel import MediaChannel, LinkAdapter, PHOTO, AUDIO
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from .transport.lxmf_transport import LXMFTransport
 
@@ -63,6 +64,7 @@ class EmergencyDaemon:
             get_fix_fn=self._get_current_fix,
         )
         self.discover = Discover(starred_path=config.starred_file)
+        self.media = MediaChannel()  # ti + link_send_fn wired on start()
         self.tracks = LiveTrackStore()
         self.incoming = IncomingDispatcher(
             settings=self.settings, contacts=self.contacts,
@@ -99,6 +101,8 @@ class EmergencyDaemon:
             loglevel=self.loglevel,
         )
         self.ti = TransportIntelligence(reticulum=self.reticulum)
+        # Wire transport intelligence into the media channel for tier gating.
+        self.media.ti = self.ti
 
         self.lxmf = LXMFTransport(
             identity=self.identity,
