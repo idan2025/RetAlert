@@ -345,11 +345,10 @@ def cmd_contacts(args) -> int:
     if args.contacts_cmd == "add":
         name = args.name
         if name is None:
-            # Fall back to the discover display name, else the hash prefix.
-            daemon = _make_daemon(args, start=True)
-            peer = daemon.discover.get(args.hash)
-            name = (peer.display_name if peer and peer.display_name
-                    else args.hash[:16])
+            # No name given: fall back to the hash prefix. (A live daemon's
+            # discover cache isn't reachable from a fresh CLI process, so we
+            # don't boot RNS just for a name.)
+            name = args.hash[:16]
         contacts.add(args.hash, name)
         print(f"added {name} ({args.hash})")
     elif args.contacts_cmd == "remove":
