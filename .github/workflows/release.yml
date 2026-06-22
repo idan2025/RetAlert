@@ -1,0 +1,74 @@
+name: Release
+
+# Cuts a full GitHub Release on a version tag (vX.Y.Z). Always ships the
+# Python sdist+wheel; additionally attaches the Android APK and/or the desktop
+# binary, but only the targets that currently have something to compile.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build Python sdist + wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+          mkdir -p release-assets
+          cp dist/* release-assets/
+
+      - name: Detect buildable app targets
+        id: detect
+        run: |
+          if [ -f buildozer.spec ]; then echo "android=true" >> "$GITHUB_OUTPUT"; else echo "android=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -f main.py ]; then echo "desktop=true" >> "$GITHUB_OUTPUT"; else echo "desktop=false" >> "$GITHUB_OUTPUT"; fi
+
+      # --- Android APK (only if there's a spec to build) -----------------
+      # `buildozer android release` yields an unsigned APK; add a keystore via
+      # repo secrets + signing config when ready to ship signed builds.
+      - name: Build Android APK
+        if: steps.detect.outputs.android == 'true'
+        id: apk
+        uses: ArtemSBulgakov/buildozer-action@v1
+        with:
+          command: buildozer android release
+      - name: Stage APK
+        if: steps.detect.outputs.android == 'true'
+        run: cp "${{ steps.apk.outputs.filename }}" release-assets/
+
+      # --- Desktop binary (only if there's a Kivy entrypoint) ------------
+      - name: System deps for desktop build
+        if: steps.detect.outputs.desktop == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libsdl2-2.0-0 libsdl2-image-2.0-0 libsdl2-mixer-2.0-0 \
+            libsdl2-ttf-2.0-0 libmtdev1
+      - name: Build desktop binary
+        if: steps.detect.outputs.desktop == 'true'
+        run: |
+          pip install -e ".[ui]" pyinstaller
+          pyinstaller --onefile --name retalert-desktop main.py
+          cp dist/retalert-desktop release-assets/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          fail_on_unmatched_files: false

@@ -1,0 +1,53 @@
+name: Android APK
+
+# Builds the on-the-go Android APK with Buildozer (Kivy + python-for-android).
+# Gated: the heavy build only runs once a buildozer.spec exists, so this stays
+# green (and cheap) until the Kivy UI lands.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      buildable: ${{ steps.check.outputs.buildable }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        name: Is there an APK to compile?
+        run: |
+          if [ -f buildozer.spec ]; then
+            echo "buildable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "buildable=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No buildozer.spec yet — nothing to compile, skipping APK build."
+          fi
+
+  apk:
+    needs: detect
+    if: needs.detect.outputs.buildable == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build debug APK
+        id: buildozer
+        uses: ArtemSBulgakov/buildozer-action@v1
+        with:
+          command: buildozer android debug
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: retalert-debug-apk
+          path: ${{ steps.buildozer.outputs.filename }}
+          if-no-files-found: error

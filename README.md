@@ -1,5 +1,9 @@
 # RetAlert
 
+[![CI](https://github.com/idan2025/RetAlert/actions/workflows/ci.yml/badge.svg)](https://github.com/idan2025/RetAlert/actions/workflows/ci.yml)
+[![Android APK](https://github.com/idan2025/RetAlert/actions/workflows/android.yml/badge.svg)](https://github.com/idan2025/RetAlert/actions/workflows/android.yml)
+[![Desktop build](https://github.com/idan2025/RetAlert/actions/workflows/desktop.yml/badge.svg)](https://github.com/idan2025/RetAlert/actions/workflows/desktop.yml)
+
 Reticulum + LXMF emergency-alert app. Panic button (UI + hardware-key mapping),
 transport-aware failover (prioritize fastest interface, never start a heavy
 channel over LoRa, redundant fan-out for critical alerts), live location
@@ -176,8 +180,22 @@ removes its own temp artifacts. Options: `--check`, `--tag <tag>`,
 
 ## Tests
 ```sh
-pytest                             # full suite (169 tests)
+pytest                             # full suite (205 tests)
 ```
+
+## CI / builds
+GitHub Actions, under [`.github/workflows`](.github/workflows):
+
+| Workflow | Trigger | Builds |
+|----------|---------|--------|
+| `ci.yml` | every push / PR | pytest (3.11–3.13) + sdist/wheel |
+| `android.yml` | push / PR | APK via Buildozer — **only when `buildozer.spec` exists** |
+| `desktop.yml` | push / PR | Linux PyInstaller binary — **only when `main.py` exists** |
+| `release.yml` | tag `v*` | full GitHub Release: Python dist always, APK + desktop binary if present |
+
+The app builds are gated: until the Kivy UI lands there is nothing to compile,
+so those workflows detect-and-skip (staying green) and switch on automatically
+once the entrypoints appear. Cut a release with `git tag v0.1.0 && git push --tags`.
 
 ## License
 MIT.
