@@ -83,6 +83,35 @@ class AppController:
                       recipients=list(recipients), **kw)
         return self.daemon.send_alert(alert)
 
+    def resolve_recipients(self, token: str) -> List[str]:
+        """Resolve a token to destination hashes. Accepts a 32-hex-char hash
+        (with or without colons), a group name, or a contact display name.
+        Returns [] if nothing matches."""
+        token = (token or "").strip()
+        clean = token.replace(":", "").lower()
+        try:
+            bytes.fromhex(clean)
+            if len(clean) == 32:
+                return [clean]
+        except ValueError:
+            pass
+        members = self.daemon.expand_group(token)
+        if members:
+            return list(members)
+        for c in self.daemon.contacts.list():
+            if c.name == token:
+                return [c.hash]
+        return []
+
+    def send_text(self, text: str, target: str, severity: str = "help",
+                  **kw) -> Alert:
+        """Resolve ``target`` (hash / group / contact) and send an alert.
+        Raises ValueError if the target resolves to no recipient."""
+        recipients = self.resolve_recipients(target)
+        if not recipients:
+            raise ValueError(f"no recipient for {target!r}")
+        return self.send_alert(text, recipients, severity=severity, **kw)
+
     def reply(self, alert_id: str, text: str) -> bool:
         return self.daemon.reply_to_alert(alert_id, text)
 

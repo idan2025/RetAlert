@@ -96,6 +96,37 @@ def test_panic_with_no_preset_returns_none(tmp_path):
     assert c.panic("default") is None
 
 
+def test_resolve_recipients_hex(tmp_path):
+    c = _ctl(tmp_path)
+    assert c.resolve_recipients("AA" * 16) == ["aa" * 16]
+    # colon-grouped hex is accepted too
+    colon = ":".join(["aa"] * 16)
+    assert c.resolve_recipients(colon) == ["aa" * 16]
+
+
+def test_resolve_recipients_contact_name(tmp_path):
+    c = _ctl(tmp_path)
+    c.daemon.contacts.add("bb" * 16, "Bob")
+    assert c.resolve_recipients("Bob") == ["bb" * 16]
+
+
+def test_resolve_recipients_group(tmp_path):
+    c = _ctl(tmp_path)
+    c.daemon.groups.create("team", ["aa" * 16, "bb" * 16])
+    assert c.resolve_recipients("team") == ["aa" * 16, "bb" * 16]
+
+
+def test_resolve_recipients_unknown(tmp_path):
+    assert _ctl(tmp_path).resolve_recipients("nobody") == []
+
+
+def test_send_text_unknown_target_raises(tmp_path):
+    c = _ctl(tmp_path)
+    import pytest
+    with pytest.raises(ValueError):
+        c.send_text("help", "nobody")
+
+
 def test_start_is_idempotent_flag(tmp_path):
     c = _ctl(tmp_path)
     # Simulate started without bringing up RNS.

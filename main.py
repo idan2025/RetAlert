@@ -20,8 +20,10 @@ from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import ScreenManager, Screen
 from kivy.uix.scrollview import ScrollView
+from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 
+from retalert.core.alert import SEVERITIES
 from retalert.ui import AppController
 
 
@@ -56,8 +58,15 @@ class HomeScreen(Screen):
         self.flash = Label(text="", size_hint_y=0.12, halign="center")
         root.add_widget(self.flash)
 
-        nav = Button(text="Inbox / replies", size_hint_y=0.16)
-        nav.bind(on_release=lambda *_: setattr(self.manager, "current", "inbox"))
+        nav = BoxLayout(size_hint_y=0.16, spacing=8)
+        to_inbox = Button(text="Inbox / replies")
+        to_inbox.bind(on_release=lambda *_: setattr(self.manager, "current",
+                                                    "inbox"))
+        to_send = Button(text="Send alert")
+        to_send.bind(on_release=lambda *_: setattr(self.manager, "current",
+                                                   "send"))
+        nav.add_widget(to_send)
+        nav.add_widget(to_inbox)
         root.add_widget(nav)
 
         self.add_widget(root)
@@ -159,6 +168,60 @@ class InboxScreen(Screen):
         popup.open()
 
 
+class SendScreen(Screen):
+    def __init__(self, ctl: AppController, **kw):
+        super().__init__(**kw)
+        self.ctl = ctl
+        root = BoxLayout(orientation="vertical", padding=12, spacing=8)
+
+        bar = BoxLayout(size_hint_y=0.14)
+        back = Button(text="< Home")
+        back.bind(on_release=lambda *_: setattr(self.manager, "current", "home"))
+        bar.add_widget(back)
+        root.add_widget(bar)
+
+        root.add_widget(Label(text="recipient (contact / group / hash)",
+                              size_hint_y=0.1, halign="left"))
+        self.target = TextInput(hint_text="Bob  ·  team  ·  <hex hash>",
+                                multiline=False, size_hint_y=0.14)
+        root.add_widget(self.target)
+
+        self.severity = Spinner(text=SEVERITIES[0], values=list(SEVERITIES),
+                                size_hint_y=0.12)
+        root.add_widget(self.severity)
+
+        self.body = TextInput(hint_text="message", size_hint_y=0.3)
+        root.add_widget(self.body)
+
+        self.send_btn = Button(text="Send", size_hint_y=0.16,
+                               background_color=(0.1, 0.5, 0.9, 1))
+        self.send_btn.bind(on_release=self._on_send)
+        root.add_widget(self.send_btn)
+
+        self.flash = Label(text="", size_hint_y=0.1)
+        root.add_widget(self.flash)
+        self.add_widget(root)
+
+    def _on_send(self, *_):
+        target = self.target.text.strip()
+        text = self.body.text.strip()
+        if not target or not text:
+            self.flash.text = "need a recipient and a message"
+            return
+        self.send_btn.disabled = True
+        self.flash.text = "sending…"
+
+        def done(alert, error):
+            self.send_btn.disabled = False
+            if error is not None:
+                self.flash.text = f"error: {error}"
+            else:
+                self.flash.text = f"sent {alert.alert_id or '(v0)'}"
+                self.body.text = ""
+        _run_bg(self.ctl.send_text, text, target, self.severity.text,
+                on_done=done)
+
+
 class RetAlertApp(App):
     def build(self):
         self.title = "RetAlert"
@@ -166,6 +229,7 @@ class RetAlertApp(App):
         sm = ScreenManager()
         sm.add_widget(HomeScreen(self.ctl, name="home"))
         sm.add_widget(InboxScreen(self.ctl, name="inbox"))
+        sm.add_widget(SendScreen(self.ctl, name="send"))
         # Bring the daemon up off the UI thread so the window paints immediately.
         _run_bg(self.ctl.start)
         return sm
