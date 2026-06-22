@@ -20,6 +20,8 @@ from .core.ack_tracker import AckTracker
 from .core.retry_queue import RetryQueue
 from .core.transport_intel import TransportIntelligence, FAN_OUT_CRITICAL, LOW
 from .core.geo_tracker import GeoTracker, FixSource, Fix
+from .core.announce_engine import AnnounceEngine
+from .core.discover import Discover, AnnounceHandler, ASPECT_LXMF_DELIVERY
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from .transport.lxmf_transport import LXMFTransport
 
@@ -46,6 +48,8 @@ class EmergencyDaemon:
                                 send_fn=self._send_to_recipient)
         self.ti: Optional[TransportIntelligence] = None
         self.geo: Optional[GeoTracker] = None
+        self.discover = Discover(starred_path=config.starred_file)
+        self.announce_engine = AnnounceEngine(self._do_announce)
         self._retry_thread: Optional[threading.Thread] = None
         self._running = False
 
@@ -85,12 +89,52 @@ class EmergencyDaemon:
         self.lxmf.start()
         self.lxmf.announce()
         log.info("announced LXMF delivery: %s", self.lxmf.delivery_hash_hex)
+        # Register an announce handler so heard peers populate the discover list.
+        RNS.Transport.register_announce_handler(
+            AnnounceHandler(self.discover, aspect_filter=ASPECT_LXMF_DELIVERY)
+        )
         self._start_retry_flusher()
 
     def stop(self) -> None:
         """Best-effort shutdown."""
         self._running = False
+        self.announce_engine.stop()
+        self.stop_live_share()
         log.info("daemon stopping")
+
+    # -- announce / discover -------------------------------------------
+
+    def _do_announce(self) -> None:
+        """Transport callback for AnnounceEngine (and manual announce_now)."""
+        if self.lxmf is not None:
+            self.lxmf.announce()
+
+    def announce_now(self) -> None:
+        """Send one announce immediately (manual / CLI one-shot)."""
+        if self.lxmf is None:
+            raise RuntimeError("daemon not started")
+        self.announce_engine.announce_now()
+
+    def set_auto_announce(self, enabled: bool,
+                          interval: Optional[float] = None) -> float:
+        """Toggle auto-announce; ``interval`` clamped to [30min, 12h]."""
+        return self.announce_engine.set_auto(enabled, interval=interval)
+
+    @property
+    def auto_announce(self) -> bool:
+        return self.announce_engine.auto
+
+    def discover_list(self):
+        return self.discover.list()
+
+    def discover_clear(self) -> int:
+        return self.discover.clear()
+
+    def star(self, hash_hex: str) -> bool:
+        return self.discover.star(hash_hex)
+
+    def unstar(self, hash_hex: str) -> bool:
+        return self.discover.unstar(hash_hex)
 
     # -- retry flusher --------------------------------------------------
 

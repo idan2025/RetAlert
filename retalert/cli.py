@@ -25,6 +25,10 @@ from .core.geo_tracker import (
     GeoTracker, ManualFixSource, LinuxFixSource,
     clamp_lora_throttle, LORA_THROTTLE_DEFAULT,
 )
+from .core.announce_engine import (
+    ANNOUNCE_MIN_INTERVAL, ANNOUNCE_MAX_INTERVAL,
+    ANNOUNCE_PRESET_VALUES, ANNOUNCE_PRESETS, clamp_announce_interval,
+)
 from .storage import Contacts
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from . import updater
@@ -242,8 +246,15 @@ def cmd_contacts(args) -> int:
     config = AppConfig.resolve(args.storage)
     contacts = Contacts(config.contacts_file)
     if args.contacts_cmd == "add":
-        contacts.add(args.hash, args.name)
-        print(f"added {args.name} ({args.hash})")
+        name = args.name
+        if name is None:
+            # Fall back to the discover display name, else the hash prefix.
+            daemon = _make_daemon(args, start=True)
+            peer = daemon.discover.get(args.hash)
+            name = (peer.display_name if peer and peer.display_name
+                    else args.hash[:16])
+        contacts.add(args.hash, name)
+        print(f"added {name} ({args.hash})")
     elif args.contacts_cmd == "remove":
         ok = contacts.remove(args.hash)
         print("removed" if ok else "not found", args.hash)
@@ -254,6 +265,54 @@ def cmd_contacts(args) -> int:
         for c in rows:
             print(f"{c.hash}  {c.name}")
     return 0
+
+
+def cmd_announce(args) -> int:
+    """Manual one-shot announce, or toggle auto-announce."""
+    daemon = _make_daemon(args, start=True)
+    if args.announce_cmd == "now":
+        daemon.announce_now()
+        print(f"announced LXMF delivery: {daemon.delivery_hash_hex}")
+        return 0
+    if args.announce_cmd == "auto":
+        if args.off:
+            daemon.set_auto_announce(False)
+            print("auto-announce: off")
+            return 0
+        interval = clamp_announce_interval(args.interval)
+        daemon.set_auto_announce(True, interval=interval)
+        label = ANNOUNCE_PRESETS.get(int(interval), f"{interval:.0f}s")
+        print(f"auto-announce: on  interval={label} ({interval:.0f}s)")
+        return 0
+    return 1
+
+
+def cmd_discover(args) -> int:
+    """List/clear heard announces, star/unstar peers (Columba-style)."""
+    daemon = _make_daemon(args, start=True)
+    if args.discover_cmd == "list":
+        peers = daemon.discover_list()
+        if not peers:
+            print("(no announces heard)")
+            return 0
+        for p in peers:
+            star = "*" if p.starred else " "
+            name = p.display_name or "(unknown)"
+            print(f"{star} {p.hash}  {name}  [{p.aspect}]  {p.last_heard:.0f}")
+        return 0
+    if args.discover_cmd == "clear":
+        n = daemon.discover_clear()
+        print(f"cleared {n} announce(s) from discover list")
+        return 0
+    if args.discover_cmd == "star":
+        ok = daemon.star(args.hash)
+        print("starred" if ok else "not heard yet (will star when heard)", args.hash)
+        return 0
+    if args.discover_cmd == "unstar":
+        daemon.unstar(args.hash)
+        print("unstarred", args.hash)
+        return 0
+    return 1
 
 
 def cmd_update(args) -> int:
@@ -329,15 +388,42 @@ def build_parser() -> argparse.ArgumentParser:
 
     cp = sub.add_parser("contacts", help="manage contacts")
     cps = cp.add_subparsers(dest="contacts_cmd", required=True)
-    ca = cps.add_parser("add", help="add a contact")
+    ca = cps.add_parser("add", help="add a contact (name optional; pulled from discover if omitted)")
     ca.add_argument("hash", help="destination hash (hex)")
-    ca.add_argument("name", help="display name")
+    ca.add_argument("name", nargs="?", default=None, help="display name (optional)")
     ca.set_defaults(func=cmd_contacts)
     cr = cps.add_parser("remove", help="remove a contact")
     cr.add_argument("hash", help="destination hash (hex)")
     cr.set_defaults(func=cmd_contacts)
     cl = cps.add_parser("list", help="list contacts")
     cl.set_defaults(func=cmd_contacts)
+
+    # announce: manual one-shot + auto-announce toggle.
+    anp = sub.add_parser("announce", help="send / schedule LXMF delivery announces")
+    ans = anp.add_subparsers(dest="announce_cmd", required=True)
+    an_now = ans.add_parser("now", help="send one announce now")
+    an_now.set_defaults(func=cmd_announce)
+    an_auto = ans.add_parser("auto", help="toggle automatic re-announce")
+    an_auto.add_argument("--interval", type=float, default=None,
+                         help=f"seconds between announces "
+                              f"(presets: {dict(ANNOUNCE_PRESETS)}; "
+                              f"min {ANNOUNCE_MIN_INTERVAL}s, max {ANNOUNCE_MAX_INTERVAL}s)")
+    an_auto.add_argument("--off", action="store_true", help="disable auto-announce")
+    an_auto.set_defaults(func=cmd_announce)
+
+    # discover: heard announce list (Columba-style network screen).
+    dp = sub.add_parser("discover", help="discover/network list of heard announces")
+    dps = dp.add_subparsers(dest="discover_cmd", required=True)
+    dl = dps.add_parser("list", help="list heard announces")
+    dl.set_defaults(func=cmd_discover)
+    dc = dps.add_parser("clear", help="clear the heard-announce list")
+    dc.set_defaults(func=cmd_discover)
+    ds = dps.add_parser("star", help="star a discovered peer")
+    ds.add_argument("hash", help="destination hash (hex)")
+    ds.set_defaults(func=cmd_discover)
+    du = dps.add_parser("unstar", help="unstar a discovered peer")
+    du.add_argument("hash", help="destination hash (hex)")
+    du.set_defaults(func=cmd_discover)
 
     sp = sub.add_parser("update", help="self-update from GitHub releases")
     sp.add_argument("--check", action="store_true", help="only check, do not install")

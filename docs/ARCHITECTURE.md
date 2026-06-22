@@ -23,6 +23,8 @@ retalert/
     ack_tracker.py        per-recipient delivery/ack state (step 2)
     retry_queue.py        persistent unsent queue, fast retry (step 2)
     geo_tracker.py        GPS one-shot + live-share thread + LoRa throttle (step 5)
+    announce_engine.py    manual + auto-announce loop, 30min-12h interval (step 6)
+    discover.py           heard-announce cache + starred set, RNS handler (step 6)
     media_channel.py      stub — audio/photo over RNS Link (step 13)
     transport_intel.py    interface classify/rank/fanout/failover (steps 3-4)
 ```
@@ -34,7 +36,7 @@ retalert/
 3. TransportIntelligence: classify + tier policy + ranking
 4. Hail Mary fan-out + fast failover
 5. GPS one-shot, then live-share (LoRa throttle) — **done**
-6. Contacts + discover/network screen
+6. Contacts + discover/network screen — **done** (backend: AnnounceEngine + Discover; CLI: announce/auto, discover list/clear/star/unstar)
 7. Ad-hoc group assembly from contacts
 8. Map screen: live tracking + offline tiles
 9. Incoming bypass-silent/DND + receive-from-contacts toggle
