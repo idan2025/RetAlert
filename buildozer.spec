@@ -35,6 +35,9 @@ android.api = 34
 android.minapi = 24
 android.archs = arm64-v8a
 android.allow_backup = 1
+# Produce a sideload-installable APK from `buildozer android release` (default
+# is an .aab app bundle, which needs bundletool/Play to install).
+android.release_artifact = apk
 
 [buildozer]
 log_level = 2

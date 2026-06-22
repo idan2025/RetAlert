@@ -79,14 +79,23 @@ jobs:
           else
             echo "::warning::No ANDROID_KEYSTORE_BASE64 secret — release APK will be UNSIGNED."
           fi
-      - name: Build release APK
+      # With a keystore -> a signed release APK. Without one, `buildozer android
+      # release` still passes --sign and fails, so fall back to a debug APK
+      # (unsigned but sideload-installable) so the release always ships an APK.
+      - name: Build APK
         if: steps.detect.outputs.android == 'true'
         env:
           P4A_RELEASE_KEYSTORE: ${{ env.RETALERT_KEYSTORE }}
           P4A_RELEASE_KEYSTORE_PASSWD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           P4A_RELEASE_KEYALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           P4A_RELEASE_KEYALIAS_PASSWD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: yes | buildozer android release
+        run: |
+          if [ -n "${RETALERT_KEYSTORE:-}" ]; then
+            yes | buildozer android release
+          else
+            echo "::warning::No keystore secret — attaching an unsigned DEBUG APK."
+            yes | buildozer android debug
+          fi
       - name: Stage APK
         if: steps.detect.outputs.android == 'true'
         run: cp bin/*.apk release-assets/
