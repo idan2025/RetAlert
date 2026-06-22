@@ -1,0 +1,104 @@
+"""Tests for retalert.ui.AppController (UI-agnostic daemon façade).
+
+Covers the surface a Kivy/desktop shell relies on without starting RNS: the
+inbound feed, inbox/reply/ack plumbing, presets/contacts views, status gating
+before start, and panic with no preset configured.
+"""
+from retalert.ui import AppController
+from retalert.core.incoming import IncomingMessage, encode_reply, encode_ack
+from retalert.core.preset import Preset
+
+
+class _FakeLXMF:
+    def __init__(self):
+        self.sent = []
+
+    def send_message(self, dest, body):
+        self.sent.append((dest, body))
+
+
+def _ctl(tmp_path):
+    return AppController(storage_dir=str(tmp_path))
+
+
+def _alert(alert_id="aid1", src="aa" * 16, sev="danger", text="help"):
+    return IncomingMessage(source_hash=src, text=text, timestamp=1.0,
+                           kind="alert", severity=sev, alert_id=alert_id)
+
+
+def test_not_started_status_and_hash(tmp_path):
+    c = _ctl(tmp_path)
+    assert c.started is False
+    assert c.delivery_hash is None
+    st = c.status()
+    assert st["ready"] is False and st["interfaces"] == [] and st["gating"] == {}
+
+
+def test_feed_starts_empty_and_records(tmp_path):
+    c = _ctl(tmp_path)
+    assert c.feed() == []
+    c.daemon._on_parsed_incoming(_alert(text="roof"))
+    feed = c.feed()
+    assert len(feed) == 1
+    assert feed[0]["alert_id"] == "aid1" and feed[0]["text"] == "roof"
+
+
+def test_clear_feed(tmp_path):
+    c = _ctl(tmp_path)
+    c.daemon._on_parsed_incoming(_alert())
+    c.clear_feed()
+    assert c.feed() == []
+
+
+def test_inbound_alert_lands_in_inbox(tmp_path):
+    c = _ctl(tmp_path)
+    c.daemon._on_parsed_incoming(_alert())
+    inbox = c.inbox()
+    assert len(inbox) == 1 and inbox[0].alert_id == "aid1"
+
+
+def test_reply_routes_through_daemon(tmp_path):
+    c = _ctl(tmp_path)
+    c.daemon.lxmf = _FakeLXMF()
+    c.daemon._on_parsed_incoming(_alert(src="cd" * 16))
+    assert c.reply("aid1", "omw") is True
+    assert c.daemon.lxmf.sent == [("cd" * 16, encode_reply("aid1", "omw"))]
+
+
+def test_reply_unknown_returns_false(tmp_path):
+    c = _ctl(tmp_path)
+    c.daemon.lxmf = _FakeLXMF()
+    assert c.reply("nope", "x") is False
+    assert c.daemon.lxmf.sent == []
+
+
+def test_ack_routes_through_daemon(tmp_path):
+    c = _ctl(tmp_path)
+    c.daemon.lxmf = _FakeLXMF()
+    c.daemon._on_parsed_incoming(_alert())
+    assert c.ack("aid1") is True
+    assert c.daemon.lxmf.sent == [("aa" * 16, encode_ack("aid1"))]
+
+
+def test_presets_view(tmp_path):
+    c = _ctl(tmp_path)
+    assert c.presets() == []
+    c.daemon.preset_store.put(Preset(name="sos", severity="danger",
+                                     recipients=["aa" * 16]))
+    names = [p.name for p in c.presets()]
+    assert "sos" in names
+
+
+def test_panic_with_no_preset_returns_none(tmp_path):
+    # No preset configured -> fire resolves nothing and returns None without
+    # touching the network.
+    c = _ctl(tmp_path)
+    assert c.panic("default") is None
+
+
+def test_start_is_idempotent_flag(tmp_path):
+    c = _ctl(tmp_path)
+    # Simulate started without bringing up RNS.
+    c._started = True
+    c.start()  # no-op branch
+    assert c.started is True

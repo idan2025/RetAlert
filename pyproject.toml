@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+ui = ["kivy>=2.3.0"]
 
 [project.scripts]
 retalert = "retalert.cli:main"

@@ -15,9 +15,11 @@ Full design spec: [`PROMPT.md`](PROMPT.md). Architecture map:
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Status
-Backend (Python core) implemented and tested via the headless CLI. UI (Kivy
-on-screen panic button, map, hardware-key capture, desktop pass) is the next
-phase. Build-order progress:
+Backend (Python core) implemented and tested via the headless CLI. UI phase
+started: a Kivy app (`main.py`) over a testable `retalert.ui.AppController` —
+panic button, status line, and inbox reply/ack — with Android (Buildozer) and
+Linux desktop (PyInstaller) builds in CI. Map and on-device capture next.
+Build-order progress:
 
 | Step | Feature | Status |
 |------|---------|--------|
@@ -33,7 +35,7 @@ phase. Build-order progress:
 | 11 | Dynamic hardware-key capture | ✅ backend / capture deferred |
 | 12 | Shared-instance attach | ✅ |
 | 13 | Audio/photo channel over raw RNS link | ✅ backend |
-| 14 | Desktop UI pass | ⏳ Kivy |
+| 14 | Desktop UI pass | 🚧 Kivy app skeleton (panic + inbox) landed |
 | 15 | Hardening + docs | ✅ |
 
 A self-updater is included as an early-priority feature.
@@ -180,7 +182,7 @@ removes its own temp artifacts. Options: `--check`, `--tag <tag>`,
 
 ## Tests
 ```sh
-pytest                             # full suite (205 tests)
+pytest                             # full suite (215 tests)
 ```
 
 ## CI / builds
