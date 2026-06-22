@@ -149,6 +149,35 @@ class AppController:
     def contacts(self):
         return self.daemon.contacts.list()
 
+    def add_contact(self, hash_hex: str, name: str) -> None:
+        self.daemon.contacts.add(hash_hex, name)
+
+    def remove_contact(self, hash_hex: str) -> bool:
+        return self.daemon.contacts.remove(hash_hex)
+
+    def discovered(self):
+        """Heard-announce peers (Columba-style discover list)."""
+        return self.daemon.discover.list()
+
+    # -- incoming filter / settings ------------------------------------
+
+    def settings_view(self) -> dict:
+        s = self.daemon.settings
+        return {"receive_only": s.receive_only_from_contacts,
+                "allow": sorted(s.allowlist), "deny": sorted(s.denylist)}
+
+    def set_receive_only(self, value: bool) -> None:
+        self.daemon.settings.set_receive_only_from_contacts(bool(value))
+
+    def allow(self, hash_hex: str) -> None:
+        self.daemon.settings.allow(hash_hex)
+
+    def deny(self, hash_hex: str) -> None:
+        self.daemon.settings.deny(hash_hex)
+
+    def forget(self, hash_hex: str) -> None:
+        self.daemon.settings.forget(hash_hex)
+
     def ack_summary(self, alert_id: str) -> Dict[str, str]:
         return self.daemon.ack.summary(alert_id)
 

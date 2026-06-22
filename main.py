@@ -16,6 +16,7 @@ from kivy.app import App
 from kivy.clock import Clock
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
+from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
 from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import ScreenManager, Screen
@@ -58,9 +59,10 @@ class HomeScreen(Screen):
         self.flash = Label(text="", size_hint_y=0.12, halign="center")
         root.add_widget(self.flash)
 
-        nav = BoxLayout(size_hint_y=0.16, spacing=8)
+        nav = GridLayout(cols=3, size_hint_y=0.24, spacing=6)
         for label, screen in (("Send", "send"), ("Inbox", "inbox"),
-                              ("Sent", "outbox"), ("Presets", "presets")):
+                              ("Sent", "outbox"), ("Presets", "presets"),
+                              ("Contacts", "contacts"), ("Settings", "settings")):
             b = Button(text=label)
             b.bind(on_release=lambda _w, s=screen: setattr(self.manager,
                                                            "current", s))
@@ -332,6 +334,120 @@ class PresetsScreen(Screen):
         _run_bg(self.ctl.panic, name, on_done=done)
 
 
+class ContactsScreen(Screen):
+    def __init__(self, ctl: AppController, **kw):
+        super().__init__(**kw)
+        self.ctl = ctl
+        root = BoxLayout(orientation="vertical", padding=10, spacing=8)
+
+        bar = BoxLayout(size_hint_y=0.12, spacing=8)
+        back = Button(text="< Home")
+        back.bind(on_release=lambda *_: setattr(self.manager, "current", "home"))
+        bar.add_widget(back)
+        root.add_widget(bar)
+
+        add = BoxLayout(size_hint_y=0.14, spacing=6)
+        self.name = TextInput(hint_text="name", multiline=False)
+        self.hash = TextInput(hint_text="hex hash", multiline=False)
+        addb = Button(text="Add", size_hint_x=0.3)
+        addb.bind(on_release=self._add)
+        add.add_widget(self.name)
+        add.add_widget(self.hash)
+        add.add_widget(addb)
+        root.add_widget(add)
+
+        scroll = ScrollView()
+        self.list_box = BoxLayout(orientation="vertical", size_hint_y=None,
+                                  spacing=4, padding=2)
+        self.list_box.bind(minimum_height=self.list_box.setter("height"))
+        scroll.add_widget(self.list_box)
+        root.add_widget(scroll)
+        self.add_widget(root)
+
+    def on_pre_enter(self, *_):
+        self._refresh()
+
+    def _add(self, *_):
+        name, h = self.name.text.strip(), self.hash.text.strip().replace(":", "")
+        if name and h:
+            self.ctl.add_contact(h, name)
+            self.name.text = self.hash.text = ""
+            self._refresh()
+
+    def _refresh(self):
+        self.list_box.clear_widgets()
+        people = self.ctl.contacts()
+        if not people:
+            self.list_box.add_widget(Label(text="(no contacts)",
+                                           size_hint_y=None, height=36))
+            return
+        for c in people:
+            row = BoxLayout(size_hint_y=None, height=40, spacing=6)
+            row.add_widget(Label(text=f"{c.name}  {c.hash[:10]}…"))
+            rm = Button(text="Remove", size_hint_x=0.3)
+            rm.bind(on_release=lambda _w, h=c.hash: (self.ctl.remove_contact(h),
+                                                     self._refresh()))
+            row.add_widget(rm)
+            self.list_box.add_widget(row)
+
+
+class SettingsScreen(Screen):
+    def __init__(self, ctl: AppController, **kw):
+        super().__init__(**kw)
+        self.ctl = ctl
+        root = BoxLayout(orientation="vertical", padding=12, spacing=10)
+
+        bar = BoxLayout(size_hint_y=0.12, spacing=8)
+        back = Button(text="< Home")
+        back.bind(on_release=lambda *_: setattr(self.manager, "current", "home"))
+        bar.add_widget(back)
+        root.add_widget(bar)
+
+        self.recv_btn = Button(size_hint_y=0.18)
+        self.recv_btn.bind(on_release=self._toggle_recv)
+        root.add_widget(self.recv_btn)
+
+        deny = BoxLayout(size_hint_y=0.14, spacing=6)
+        self.deny_in = TextInput(hint_text="hex hash to allow/deny",
+                                 multiline=False)
+        ab = Button(text="Allow", size_hint_x=0.25)
+        ab.bind(on_release=lambda *_: self._filter(self.ctl.allow))
+        db = Button(text="Deny", size_hint_x=0.25)
+        db.bind(on_release=lambda *_: self._filter(self.ctl.deny))
+        deny.add_widget(self.deny_in)
+        deny.add_widget(ab)
+        deny.add_widget(db)
+        root.add_widget(deny)
+
+        self.summary = Label(text="", halign="left")
+        root.add_widget(self.summary)
+        self.add_widget(root)
+
+    def on_pre_enter(self, *_):
+        self._refresh()
+
+    def _toggle_recv(self, *_):
+        cur = self.ctl.settings_view()["receive_only"]
+        self.ctl.set_receive_only(not cur)
+        self._refresh()
+
+    def _filter(self, fn):
+        h = self.deny_in.text.strip().replace(":", "")
+        if h:
+            fn(h)
+            self.deny_in.text = ""
+            self._refresh()
+
+    def _refresh(self):
+        st = self.ctl.settings_view()
+        self.recv_btn.text = ("Receive only from contacts: "
+                              f"{'ON' if st['receive_only'] else 'OFF'}")
+        self.summary.text = (f"allow ({len(st['allow'])}): "
+                             f"{', '.join(h[:8] for h in st['allow']) or '-'}\n"
+                             f"deny ({len(st['deny'])}): "
+                             f"{', '.join(h[:8] for h in st['deny']) or '-'}")
+
+
 class RetAlertApp(App):
     def build(self):
         self.title = "RetAlert"
@@ -342,6 +458,8 @@ class RetAlertApp(App):
         sm.add_widget(SendScreen(self.ctl, name="send"))
         sm.add_widget(OutboxScreen(self.ctl, name="outbox"))
         sm.add_widget(PresetsScreen(self.ctl, name="presets"))
+        sm.add_widget(ContactsScreen(self.ctl, name="contacts"))
+        sm.add_widget(SettingsScreen(self.ctl, name="settings"))
         # Bring the daemon up off the UI thread so the window paints immediately.
         _run_bg(self.ctl.start)
         return sm

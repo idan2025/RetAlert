@@ -165,6 +165,35 @@ def test_sent_alerts_newest_first(tmp_path, monkeypatch):
     assert [a.alert_id for a in c.sent_alerts()] == ["2", "1"]
 
 
+def test_settings_view_defaults(tmp_path):
+    st = _ctl(tmp_path).settings_view()
+    assert st == {"receive_only": True, "allow": [], "deny": []}
+
+
+def test_set_receive_only(tmp_path):
+    c = _ctl(tmp_path)
+    c.set_receive_only(False)
+    assert c.settings_view()["receive_only"] is False
+
+
+def test_allow_deny_forget(tmp_path):
+    c = _ctl(tmp_path)
+    c.allow("aa" * 16)
+    c.deny("bb" * 16)
+    st = c.settings_view()
+    assert "aa" * 16 in st["allow"] and "bb" * 16 in st["deny"]
+    c.forget("aa" * 16)
+    assert "aa" * 16 not in c.settings_view()["allow"]
+
+
+def test_add_remove_contact(tmp_path):
+    c = _ctl(tmp_path)
+    c.add_contact("aa" * 16, "Alice")
+    assert [k.name for k in c.contacts()] == ["Alice"]
+    assert c.remove_contact("aa" * 16) is True
+    assert c.contacts() == []
+
+
 def test_start_is_idempotent_flag(tmp_path):
     c = _ctl(tmp_path)
     # Simulate started without bringing up RNS.

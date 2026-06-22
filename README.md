@@ -16,10 +16,12 @@ Full design spec: [`PROMPT.md`](PROMPT.md). Architecture map:
 
 ## Status
 Backend (Python core) implemented and tested via the headless CLI. UI phase
-started: a Kivy app (`main.py`) over a testable `retalert.ui.AppController` —
-panic button, status line, and inbox reply/ack — with Android (Buildozer) and
-Linux desktop (PyInstaller) builds in CI. Map and on-device capture next.
-Build-order progress:
+in progress: a Kivy app (`main.py`) over a testable `retalert.ui.AppController`
+with screens for panic + status, send, inbox (reply/ack), outbox (ack state),
+presets (one-tap fire), contacts, and the incoming-filter settings. Android
+(Buildozer) and Linux desktop (PyInstaller) builds run in CI — the debug APK
+already compiles. Map and on-device capture (GPS/audio/photo/hardware-key)
+next. Build-order progress:
 
 | Step | Feature | Status |
 |------|---------|--------|
@@ -182,7 +184,7 @@ removes its own temp artifacts. Options: `--check`, `--tag <tag>`,
 
 ## Tests
 ```sh
-pytest                             # full suite (224 tests)
+pytest                             # full suite (228 tests)
 ```
 
 ## CI / builds
