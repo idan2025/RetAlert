@@ -18,8 +18,9 @@ retalert/
     share_instance.py  stub — attach to Sideband/Columba/MeshChat/MeshChatX (step 12)
   core/
     alert.py              Alert model + delivery states
-    panic_engine.py       stub — trigger dispatch (step 10)
-    preset_resolver.py    stub — trigger->preset (step 10)
+    panic_engine.py       PanicEngine: trigger->preset->alert dispatch (step 10)
+    preset.py             Preset config bundle + PresetStore (step 10)
+    preset_resolver.py    stub — trigger->preset (now in panic_engine.PresetResolver)
     ack_tracker.py        per-recipient delivery/ack state (step 2)
     retry_queue.py        persistent unsent queue, fast retry (step 2)
     geo_tracker.py        GPS one-shot + live-share thread + LoRa throttle (step 5)
@@ -42,7 +43,7 @@ retalert/
 7. Ad-hoc group assembly from contacts — **done** (Groups store + CLI group create/list/show/remove/add-member/remove-member; send --to-group fans out per-member)
 8. Map screen: live tracking + offline tiles — backend done (LiveTrackStore + geo parse); UI deferred (Kivy)
 9. Incoming bypass-silent/DND + receive-from-contacts toggle — **done** (IncomingDispatcher + Settings; bypass-silent hook stub)
-10. Preset system + on-screen panic button (Kivy)
+10. Preset system + on-screen panic button (Kivy) — preset backend **done** (Preset/PresetStore/PanicEngine/PresetResolver + CLI preset/panic); on-screen button + hold-to-confirm UI deferred (Kivy)
 11. Dynamic hardware-key capture
 12. Shared-instance attach (Sideband/Columba/MeshChat/MeshChatX)
 13. Audio/photo channel over raw RNS link

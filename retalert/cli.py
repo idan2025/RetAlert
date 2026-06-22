@@ -29,6 +29,7 @@ from .core.announce_engine import (
     ANNOUNCE_MIN_INTERVAL, ANNOUNCE_MAX_INTERVAL,
     ANNOUNCE_PRESET_VALUES, ANNOUNCE_PRESETS, clamp_announce_interval,
 )
+from .core.preset import Preset, PresetStore, PAYLOAD_CLASSES
 from .storage import Contacts, Groups
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from . import updater
@@ -470,6 +471,99 @@ def cmd_tracks(args) -> int:
     return 1
 
 
+def cmd_preset(args) -> int:
+    """Manage emergency presets (config bundles)."""
+    config = AppConfig.resolve(args.storage)
+    store = PresetStore(config.presets_file)
+    cmd = args.preset_cmd
+    if cmd == "add":
+        existing = store.by_name(args.name)
+        payload = {pc: False for pc in PAYLOAD_CLASSES}
+        for pc in (args.payload or "").split(","):
+            pc = pc.strip()
+            if pc:
+                payload[pc] = True
+        if not any(payload.values()):
+            payload["text"] = True
+        preset = Preset(
+            id=(existing.id if existing else ""),
+            name=args.name,
+            severity=args.severity,
+            text=args.text or "",
+            recipients=args.recipient or [],
+            group=args.group,
+            payload=payload,
+            retry_interval=args.retry_interval,
+            max_attempts=args.max_attempts,
+            fan_out=args.fan_out,
+            lora_throttle=args.lora_throttle,
+        )
+        store.put(preset)
+        action = "updated" if existing else "added"
+        print(f"{action} preset '{preset.name}' (id={preset.id})")
+        print(f"  severity={preset.severity} fan_out={preset.fan_out} "
+              f"payload={[k for k, v in preset.payload.items() if v]}")
+        if preset.group:
+            print(f"  group={preset.group}")
+        elif preset.recipients:
+            print(f"  recipients={preset.recipients}")
+    elif cmd == "list":
+        rows = store.list()
+        if not rows:
+            print("(no presets)")
+        for p in rows:
+            pl = [k for k, v in p.payload.items() if v]
+            tgt = f"group={p.group}" if p.group else f"{len(p.recipients)} recipient(s)"
+            print(f"{p.name:<16} sev={p.severity:<8} fan={p.fan_out:<8} "
+                  f"payload={pl}  {tgt}")
+    elif cmd == "show":
+        p = store.by_name(args.name)
+        if p is None:
+            print(f"preset '{args.name}' not found", file=sys.stderr)
+            return 1
+        print(f"name:     {p.name}  (id={p.id})")
+        print(f"severity: {p.severity}")
+        print(f"text:     {p.text!r}")
+        print(f"payload:  {[k for k, v in p.payload.items() if v]}")
+        print(f"fan_out:  {p.fan_out}")
+        print(f"retry:    every {p.retry_interval}s, max_attempts={p.max_attempts}")
+        if p.group:
+            print(f"group:    {p.group}")
+        else:
+            print(f"recipients: {p.recipients}")
+    elif cmd == "remove":
+        p = store.by_name(args.name)
+        if p is None:
+            print(f"preset '{args.name}' not found", file=sys.stderr)
+            return 1
+        store.remove(p.id)
+        print(f"removed preset '{p.name}'")
+    return 0
+
+
+def cmd_panic(args) -> int:
+    """Fire an emergency preset (confirmed trigger)."""
+    daemon = _make_daemon(args, start=True)
+    daemon.lxmf.announce()
+    name = args.preset or "default"
+    alert = daemon.panic.fire(name)
+    if alert is None:
+        print(f"no preset for '{name}' (or deduped/no recipients)", file=sys.stderr)
+        return 1
+    print(f"FIRED preset '{name}': alert {alert.alert_id}")
+    print(f"  severity={alert.severity} recipients={alert.recipients}")
+    print(f"  text={alert.text!r}")
+    # Wait briefly for delivery state.
+    deadline = time.monotonic() + args.timeout
+    while time.monotonic() < deadline:
+        if daemon.ack.is_done(alert.alert_id):
+            break
+        time.sleep(0.5)
+    for r, st in daemon.ack.summary(alert.alert_id).items():
+        print(f"  {r}: {st}")
+    return 0
+
+
 def cmd_update(args) -> int:
     if args.check:
         rel = updater.check()
@@ -633,6 +727,40 @@ def build_parser() -> argparse.ArgumentParser:
     tf.add_argument("hash", help="destination hash (hex)")
     tf.set_defaults(func=cmd_tracks)
     tps.add_parser("unfollow", help="stop following").set_defaults(func=cmd_tracks)
+
+    # preset: saved emergency config bundles (step 10).
+    pp = sub.add_parser("preset", help="manage emergency presets")
+    pps = pp.add_subparsers(dest="preset_cmd", required=True)
+    pa = pps.add_parser("add", help="add or update a preset")
+    pa.add_argument("name", help="preset name (use 'default' for the fallback)")
+    pa.add_argument("--severity", choices=SEVERITIES, default="help")
+    pa.add_argument("--text", default=None, help="message text template")
+    pa.add_argument("--recipient", action="append", default=None,
+                    help="recipient hash (repeatable; mutually exclusive with --group)")
+    pa.add_argument("--group", default=None, help="saved group name to alert")
+    pa.add_argument("--payload", default="text",
+                    help=f"comma list of payload classes to send: {list(PAYLOAD_CLASSES)}")
+    pa.add_argument("--retry-interval", type=float, default=3.0)
+    pa.add_argument("--max-attempts", type=int, default=0)
+    pa.add_argument("--fan-out", choices=["off", "critical", "all"], default="critical")
+    pa.add_argument("--lora-throttle", type=float, default=None,
+                    help="gps_live LoRa throttle seconds (10-3600)")
+    pa.set_defaults(func=cmd_preset)
+    pl = pps.add_parser("list", help="list presets")
+    pl.set_defaults(func=cmd_preset)
+    psh = pps.add_parser("show", help="show a preset")
+    psh.add_argument("name", help="preset name")
+    psh.set_defaults(func=cmd_preset)
+    prm = pps.add_parser("remove", help="delete a preset")
+    prm.add_argument("name", help="preset name")
+    prm.set_defaults(func=cmd_preset)
+
+    # panic: fire a confirmed preset trigger (step 10).
+    pcp = sub.add_parser("panic", help="fire an emergency preset")
+    pcp.add_argument("preset", nargs="?", default="default", help="preset name")
+    pcp.add_argument("--timeout", type=float, default=10.0,
+                     help="seconds to wait for delivery state")
+    pcp.set_defaults(func=cmd_panic)
 
     sp = sub.add_parser("update", help="self-update from GitHub releases")
     sp.add_argument("--check", action="store_true", help="only check, do not install")

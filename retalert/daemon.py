@@ -24,6 +24,8 @@ from .core.announce_engine import AnnounceEngine
 from .core.discover import Discover, AnnounceHandler, ASPECT_LXMF_DELIVERY
 from .core.live_tracks import LiveTrackStore
 from .core.incoming import IncomingDispatcher, encode_alert
+from .core.preset import Preset, PresetStore
+from .core.panic_engine import PanicEngine, PresetResolver
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from .transport.lxmf_transport import LXMFTransport
 
@@ -44,6 +46,7 @@ class EmergencyDaemon:
         self.lxmf: Optional[LXMFTransport] = None
         self.contacts = Contacts(config.contacts_file)
         self.presets = Presets(config.presets_file)
+        self.preset_store = PresetStore(config.presets_file)
         self.groups = Groups(config.groups_file)
         self.settings = Settings(config.settings_file)
 
@@ -52,6 +55,13 @@ class EmergencyDaemon:
                                 send_fn=self._send_to_recipient)
         self.ti: Optional[TransportIntelligence] = None
         self.geo: Optional[GeoTracker] = None
+        self.panic = PanicEngine(
+            store=self.preset_store, groups=self.groups,
+            send_alert_fn=self.send_alert,
+            expand_group_fn=self.expand_group,
+            start_live_share_fn=self.start_live_share,
+            get_fix_fn=self._get_current_fix,
+        )
         self.discover = Discover(starred_path=config.starred_file)
         self.tracks = LiveTrackStore()
         self.incoming = IncomingDispatcher(
@@ -282,6 +292,15 @@ class EmergencyDaemon:
             return False
         up = self.ti.up_interfaces()
         return bool(up) and all(i.tier == LOW for i in up)
+
+    def _get_current_fix(self):
+        """One-shot GPS fix for PanicEngine (None if no fix source set)."""
+        if self.geo is None:
+            return None
+        try:
+            return self.geo.one_shot()
+        except Exception:
+            return None
 
     # -- convenience ----------------------------------------------------
 
