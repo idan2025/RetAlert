@@ -225,6 +225,24 @@ def test_ack_alert_known_sends_ack(tmp_path):
     assert daemon.lxmf.sent == [("aa" * 16, encode_ack("aid1"))]
 
 
+def test_cli_inbox_prune(tmp_path, capsys):
+    """`retalert inbox prune` drops stale entries and reports the count."""
+    from retalert.cli import main
+    from retalert.config import AppConfig
+    from retalert.core.inbox import InboxRegistry
+    cfg = AppConfig.resolve(str(tmp_path))
+    cfg.ensure_dirs()
+    # cmd_inbox builds the daemon's inbox with the default 7-day max age, so
+    # the stale entry must predate that.
+    reg = InboxRegistry(path=cfg.inbox_file)
+    reg.record("stale", "aa" * 16, "danger", "old",
+               received_at=time.time() - 8 * 24 * 3600)
+    rc = main(["--storage", str(tmp_path), "inbox", "prune"])
+    assert rc == 0
+    assert "pruned 1" in capsys.readouterr().out
+    assert InboxRegistry(path=cfg.inbox_file).get("stale") is None
+
+
 def test_reply_roundtrip_receive_then_reply(tmp_path):
     """End-to-end at the daemon: an inbound alert is recorded, then the user
     replies by alert_id and the reply is wired back to the original sender."""

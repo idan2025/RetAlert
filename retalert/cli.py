@@ -285,6 +285,9 @@ def cmd_inbox(args) -> int:
     elif args.inbox_cmd == "clear":
         n = daemon.inbox.clear()
         print(f"cleared {n} entr(y/ies)")
+    elif args.inbox_cmd == "prune":
+        n = daemon.inbox.prune()
+        print(f"pruned {n} stale entr(y/ies)")
     return 0
 
 
@@ -765,6 +768,8 @@ def build_parser() -> argparse.ArgumentParser:
     irm.set_defaults(func=cmd_inbox)
     ic = ips.add_parser("clear", help="clear the inbox")
     ic.set_defaults(func=cmd_inbox)
+    ipr = ips.add_parser("prune", help="drop stale inbox entries (past max age)")
+    ipr.set_defaults(func=cmd_inbox)
 
     sp = sub.add_parser("reply", help="reply (ack + text) to a received alert by alert_id")
     sp.add_argument("alert_id")

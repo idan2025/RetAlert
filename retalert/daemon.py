@@ -182,11 +182,18 @@ class EmergencyDaemon:
 
     def _flush_loop(self) -> None:
         # Fast retry while alerts are unacked; idle poll otherwise.
+        ticks = 0
         while self._running:
             try:
                 self.retry.flush()
             except Exception as exc:  # never let the flusher die
                 log.warning("retry flush error: %s", exc)
+            ticks += 1
+            if ticks % 3600 == 0:  # ~hourly: drop stale inbox entries
+                try:
+                    self.inbox.prune()
+                except Exception as exc:
+                    log.warning("inbox prune error: %s", exc)
             time.sleep(1)
 
     # -- alert send -----------------------------------------------------
