@@ -82,6 +82,21 @@ def test_tile_count_grows_with_radius():
     assert c100 > c5 > 0
 
 
+# -- distance -----------------------------------------------------------
+
+def test_haversine_zero_and_known():
+    from retalert.core.map_tiles import haversine_km
+    assert haversine_km(40.0, -73.0, 40.0, -73.0) == 0.0
+    d = haversine_km(40.7128, -74.0060, 34.0522, -118.2437)  # NYC->LA
+    assert 3900 < d < 3980
+
+
+def test_format_distance_units():
+    from retalert.core.map_tiles import format_distance
+    assert format_distance(10.0, "km") == "10.0 km"
+    assert format_distance(1.609344, "mi") == "1.0 mi"
+
+
 # -- MBTiles writer -----------------------------------------------------
 
 def test_mbtiles_writer_schema_and_tms_flip(tmp_path):

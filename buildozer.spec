@@ -19,7 +19,7 @@ source.exclude_patterns = stora/*,storb/*,*.spec
 
 version = 0.1.0
 # mapview pulls requests; p4a needs its pure-Python transitive deps listed too.
-requirements = python3,kivy,kivy_garden.mapview,rns,lxmf,requests,urllib3,idna,charset-normalizer,certifi
+requirements = python3,kivy,kivy_garden.mapview,rns,lxmf,requests,urllib3,idna,charset-normalizer,certifi,plyer
 
 orientation = portrait
 fullscreen = 0

@@ -18,10 +18,13 @@ Full design spec: [`PROMPT.md`](PROMPT.md). Architecture map:
 Backend (Python core) implemented and tested via the headless CLI. UI phase
 in progress: a Kivy app (`main.py`) over a testable `retalert.ui.AppController`
 with screens for panic + status, send, inbox (reply/ack), outbox (ack state),
-presets (one-tap fire), contacts, and the incoming-filter settings. Android
+presets (one-tap fire), contacts, and the incoming-filter settings. The map screen
+has selectable tile providers, offline-area download (MBTiles, 5/10/20/50/100
+km radius), tap-to-follow real-time peer tracking with a km/mi distance
+readout, and Android GPS with a runtime location-permission prompt. Android
 (Buildozer) and Linux desktop (PyInstaller) builds run in CI — the debug APK
-already compiles. Map and on-device capture (GPS/audio/photo/hardware-key)
-next. Build-order progress:
+already compiles. On-device audio/photo/hardware-key capture and a signed
+release APK next. Build-order progress:
 
 | Step | Feature | Status |
 |------|---------|--------|
@@ -31,7 +34,7 @@ next. Build-order progress:
 | 5 | GPS one-shot + live-share (LoRa throttle) | ✅ |
 | 6 | Contacts + discover/network (announce listener) | ✅ |
 | 7 | Ad-hoc group assembly from contacts | ✅ |
-| 8 | Map screen (live-track store + geo parse) | ✅ backend / UI next |
+| 8 | Map screen (providers, offline MBTiles, tap-to-follow, distance) | ✅ |
 | 9 | Incoming filter (receive-only-from-contacts + allow/deny) + bypass-silent hook + app-level ack | ✅ |
 | 10 | Preset system + panic engine | ✅ backend / UI next |
 | 11 | Dynamic hardware-key capture | ✅ backend / capture deferred |
@@ -184,7 +187,7 @@ removes its own temp artifacts. Options: `--check`, `--tag <tag>`,
 
 ## Tests
 ```sh
-pytest                             # full suite (247 tests)
+pytest                             # full suite (254 tests)
 ```
 
 ## CI / builds

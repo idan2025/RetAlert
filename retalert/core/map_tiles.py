@@ -22,6 +22,29 @@ RADIUS_OPTIONS: List[int] = [5, 10, 20, 50, 100]
 
 BBox = Tuple[float, float, float, float]  # (min_lat, min_lon, max_lat, max_lon)
 
+# -- distance -----------------------------------------------------------
+
+DISTANCE_UNITS = ("km", "mi")
+_KM_PER_MILE = 1.609344
+
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Great-circle distance between two points, in kilometres."""
+    r = 6371.0088
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lon2 - lon1)
+    a = (math.sin(dphi / 2) ** 2
+         + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2)
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def format_distance(km: float, units: str = "km") -> str:
+    """Human distance string in km or miles."""
+    if units == "mi":
+        return f"{km / _KM_PER_MILE:.1f} mi"
+    return f"{km:.1f} km"
+
 
 # -- tile providers -----------------------------------------------------
 

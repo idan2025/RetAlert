@@ -404,9 +404,13 @@ class SettingsScreen(Screen):
         bar.add_widget(back)
         root.add_widget(bar)
 
-        self.recv_btn = Button(size_hint_y=0.18)
+        self.recv_btn = Button(size_hint_y=0.16)
         self.recv_btn.bind(on_release=self._toggle_recv)
         root.add_widget(self.recv_btn)
+
+        self.units_btn = Button(size_hint_y=0.16)
+        self.units_btn.bind(on_release=self._toggle_units)
+        root.add_widget(self.units_btn)
 
         deny = BoxLayout(size_hint_y=0.14, spacing=6)
         self.deny_in = TextInput(hint_text="hex hash to allow/deny",
@@ -432,6 +436,11 @@ class SettingsScreen(Screen):
         self.ctl.set_receive_only(not cur)
         self._refresh()
 
+    def _toggle_units(self, *_):
+        self.ctl.set_distance_units(
+            "mi" if self.ctl.distance_units() == "km" else "km")
+        self._refresh()
+
     def _filter(self, fn):
         h = self.deny_in.text.strip().replace(":", "")
         if h:
@@ -443,6 +452,7 @@ class SettingsScreen(Screen):
         st = self.ctl.settings_view()
         self.recv_btn.text = ("Receive only from contacts: "
                               f"{'ON' if st['receive_only'] else 'OFF'}")
+        self.units_btn.text = f"Distance units: {st['distance_units']}"
         self.summary.text = (f"allow ({len(st['allow'])}): "
                              f"{', '.join(h[:8] for h in st['allow']) or '-'}\n"
                              f"deny ({len(st['deny'])}): "
@@ -450,14 +460,18 @@ class SettingsScreen(Screen):
 
 
 class MapScreen(Screen):
-    """Online map (selectable provider) with live-share peer markers, plus an
-    offline download of the visible area within a chosen radius (MBTiles)."""
+    """Online map (selectable provider) with live-share peer markers, tap-to-
+    follow real-time tracking (map re-centers on the followed peer as their
+    fix updates; zoom stays where the user left it), a distance readout, and
+    an offline download of the visible area within a chosen radius (MBTiles)."""
 
     def __init__(self, ctl: AppController, **kw):
         super().__init__(**kw)
         self.ctl = ctl
         from retalert.core.map_tiles import PROVIDERS, get_provider
         self._get_provider = get_provider
+        self._peer_map = {}      # spinner label -> source hash
+        self._markers = []
         root = BoxLayout(orientation="vertical", padding=6, spacing=6)
 
         bar = BoxLayout(size_hint_y=0.1, spacing=6)
@@ -481,6 +495,17 @@ class MapScreen(Screen):
             self._ok = False
             root.add_widget(Label(text=f"map widget unavailable\n({exc})"))
 
+        follow = BoxLayout(size_hint_y=0.1, spacing=6)
+        self.peer = Spinner(text="(no peers)", values=[])
+        self.follow_btn = Button(text="Follow", size_hint_x=0.3)
+        self.follow_btn.bind(on_release=self._toggle_follow)
+        follow.add_widget(self.peer)
+        follow.add_widget(self.follow_btn)
+        root.add_widget(follow)
+
+        self.dist = Label(text="", size_hint_y=0.07)
+        root.add_widget(self.dist)
+
         dl = BoxLayout(size_hint_y=0.12, spacing=6)
         self.radius = Spinner(text="10",
                               values=[str(r) for r in ctl.map_radius_options()])
@@ -495,15 +520,14 @@ class MapScreen(Screen):
         self.flash = Label(text="", size_hint_y=0.08)
         root.add_widget(self.flash)
         self.add_widget(root)
-        self._markers = []
 
     def on_pre_enter(self, *_):
         if self._ok:
             self._apply_provider()
-            self._refresh_markers()
+            self._tick(0)
             self._update_estimate()
-            self._ev = Clock.schedule_interval(lambda _dt:
-                                               self._refresh_markers(), 5)
+            # 2s cadence so a followed peer is tracked in near real time.
+            self._ev = Clock.schedule_interval(self._tick, 2)
 
     def on_pre_leave(self, *_):
         ev = getattr(self, "_ev", None)
@@ -519,19 +543,53 @@ class MapScreen(Screen):
             url=p.url_template, cache_key=p.key, min_zoom=0,
             max_zoom=p.max_zoom, attribution=p.attribution)
 
-    def _refresh_markers(self):
+    def _toggle_follow(self, *_):
+        if self.ctl.followed():
+            self.ctl.unfollow()
+        else:
+            h = self._peer_map.get(self.peer.text)
+            if h:
+                self.ctl.follow(h)
+        self._tick(0)
+
+    def _tick(self, _dt):
         if not self._ok:
             return
+        rows = self.ctl.tracks_with_distance()
+        # Peer picker.
+        self._peer_map = {}
+        labels = []
+        for r in rows:
+            label = f"{r['name'] or r['hash'][:8]}"
+            if label in self._peer_map:           # de-dupe by appending hash
+                label = f"{label} {r['hash'][:6]}"
+            self._peer_map[label] = r["hash"]
+            labels.append(label)
+        self.peer.values = labels
+        if not labels:
+            self.peer.text = "(no peers)"
+        # Markers.
         for m in self._markers:
             self.mapview.remove_marker(m)
         self._markers = []
-        for t in self.ctl.tracks():
-            fix = getattr(t, "fix", None)
-            if fix is None:
-                continue
-            mk = self._MapMarker(lat=fix.lat, lon=fix.lon)
+        for r in rows:
+            mk = self._MapMarker(lat=r["lat"], lon=r["lon"])
             self.mapview.add_marker(mk)
             self._markers.append(mk)
+        # Follow: re-center on the followed peer (keep current zoom).
+        followed = self.ctl.followed()
+        if followed:
+            self.follow_btn.text = "Unfollow"
+            fix = self.ctl.followed_fix()
+            if fix is not None:
+                self.mapview.center_on(fix.lat, fix.lon)
+                d = self.ctl.distance_to_fix(fix) or "distance unknown"
+                name = next((lbl for lbl, h in self._peer_map.items()
+                             if h == followed), followed[:8])
+                self.dist.text = f"following {name} · {d}"
+        else:
+            self.follow_btn.text = "Follow"
+            self.dist.text = ""
 
     def _update_estimate(self):
         if not self._ok:
@@ -577,7 +635,42 @@ class RetAlertApp(App):
         _run_bg(self.ctl.start)
         return sm
 
+    def on_start(self):
+        # Ask for location at startup (Android shows the system prompt) and
+        # start streaming GPS into our own-position fix. Best-effort: a no-op
+        # on platforms without android/plyer.
+        self._start_location()
+
+    def _start_location(self):
+        try:
+            from android.permissions import request_permissions, Permission
+            request_permissions([Permission.ACCESS_FINE_LOCATION,
+                                 Permission.ACCESS_COARSE_LOCATION])
+        except Exception:
+            pass
+        try:
+            from plyer import gps
+            gps.configure(on_location=self._on_location)
+            gps.start(minTime=2000, minDistance=1)
+        except Exception:
+            pass  # no GPS provider (desktop / permission denied)
+
+    def _on_location(self, **kwargs):
+        lat, lon = kwargs.get("lat"), kwargs.get("lon")
+        if lat is None or lon is None:
+            return
+        acc = kwargs.get("accuracy")
+        # GPS callback runs off the main thread; hop back via Clock.
+        Clock.schedule_once(
+            lambda _dt: self.ctl.update_own_location(float(lat), float(lon),
+                                                     acc), 0)
+
     def on_stop(self):
+        try:
+            from plyer import gps
+            gps.stop()
+        except Exception:
+            pass
         try:
             self.ctl.stop()
         except Exception:

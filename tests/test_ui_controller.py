@@ -167,7 +167,65 @@ def test_sent_alerts_newest_first(tmp_path, monkeypatch):
 
 def test_settings_view_defaults(tmp_path):
     st = _ctl(tmp_path).settings_view()
-    assert st == {"receive_only": True, "allow": [], "deny": []}
+    assert st == {"receive_only": True, "allow": [], "deny": [],
+                  "distance_units": "km"}
+
+
+def test_distance_units_setting(tmp_path):
+    c = _ctl(tmp_path)
+    assert c.distance_units() == "km"
+    c.set_distance_units("mi")
+    assert c.distance_units() == "mi"
+    assert c.settings_view()["distance_units"] == "mi"
+    c.set_distance_units("bogus")  # invalid -> falls back to km
+    assert c.distance_units() == "km"
+
+
+def test_own_fix_none_until_set(tmp_path):
+    c = _ctl(tmp_path)
+    assert c.own_fix() is None
+    c.update_own_location(40.0, -73.0)
+    fix = c.own_fix()
+    assert fix is not None and abs(fix.lat - 40.0) < 1e-6
+
+
+def test_follow_unfollow(tmp_path):
+    from retalert.core.geo_tracker import Fix
+    c = _ctl(tmp_path)
+    c.daemon.tracks.update("aa" * 16, Fix(lat=1.0, lon=2.0, source="lxmf"),
+                           display_name="Al")
+    assert c.follow("aa" * 16) is True
+    assert c.followed() == "aa" * 16
+    ff = c.followed_fix()
+    assert ff is not None and ff.lat == 1.0
+    c.unfollow()
+    assert c.followed() is None
+
+
+def test_distance_to_fix_units(tmp_path):
+    from retalert.core.geo_tracker import Fix
+    c = _ctl(tmp_path)
+    assert c.distance_to_fix(Fix(lat=0.0, lon=0.0, source="x")) is None  # no own
+    c.update_own_location(0.0, 0.0)
+    peer = Fix(lat=0.0, lon=1.0, source="x")  # ~111 km east
+    km = c.distance_to_fix(peer)
+    assert km.endswith("km") and km.startswith("111")
+    c.set_distance_units("mi")
+    mi = c.distance_to_fix(peer)
+    assert mi.endswith("mi") and float(mi.split()[0]) < 70  # ~69 mi
+
+
+def test_tracks_with_distance(tmp_path):
+    from retalert.core.geo_tracker import Fix
+    c = _ctl(tmp_path)
+    c.daemon.tracks.update("aa" * 16, Fix(lat=0.0, lon=1.0, source="lxmf"),
+                           display_name="Al")
+    # No own location -> distance is None.
+    assert c.tracks_with_distance()[0]["distance"] is None
+    c.update_own_location(0.0, 0.0)
+    row = c.tracks_with_distance()[0]
+    assert row["name"] == "Al" and row["distance"].endswith("km")
+    assert row["followed"] is False
 
 
 def test_set_receive_only(tmp_path):

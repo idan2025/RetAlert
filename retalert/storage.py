@@ -79,6 +79,7 @@ class Settings:
         self.receive_only_from_contacts: bool = True
         self.allowlist: set[str] = set()
         self.denylist: set[str] = set()
+        self.distance_units: str = "km"  # "km" | "mi"
         self._load()
 
     def _load(self) -> None:
@@ -91,6 +92,8 @@ class Settings:
         self.receive_only_from_contacts = bool(data.get("receive_only_from_contacts", True))
         self.allowlist = {h.lower().strip() for h in data.get("allowlist", [])}
         self.denylist = {h.lower().strip() for h in data.get("denylist", [])}
+        units = data.get("distance_units", "km")
+        self.distance_units = units if units in ("km", "mi") else "km"
 
     def _save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -98,11 +101,16 @@ class Settings:
             "receive_only_from_contacts": self.receive_only_from_contacts,
             "allowlist": sorted(self.allowlist),
             "denylist": sorted(self.denylist),
+            "distance_units": self.distance_units,
         }
         self.path.write_text(json.dumps(payload, indent=2), "utf-8")
 
     def set_receive_only_from_contacts(self, enabled: bool) -> None:
         self.receive_only_from_contacts = bool(enabled)
+        self._save()
+
+    def set_distance_units(self, units: str) -> None:
+        self.distance_units = units if units in ("km", "mi") else "km"
         self._save()
 
     def allow(self, hash_hex: str) -> None:

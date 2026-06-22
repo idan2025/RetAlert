@@ -19,8 +19,8 @@ from ..daemon import EmergencyDaemon
 from ..core.alert import Alert
 from ..core.preset import PAYLOAD_CLASSES
 from ..core.map_tiles import (
-    PROVIDERS, RADIUS_OPTIONS, DEFAULT_PROVIDER, get_provider,
-    estimate_tile_count, TileDownloader,
+    PROVIDERS, RADIUS_OPTIONS, DEFAULT_PROVIDER, DISTANCE_UNITS, get_provider,
+    estimate_tile_count, TileDownloader, haversine_km, format_distance,
 )
 
 
@@ -171,6 +171,63 @@ class AppController:
         """Live-share peers (markers for the map)."""
         return self.daemon.tracks.list()
 
+    # -- own location / follow / distance ------------------------------
+
+    def own_fix(self):
+        """Our current GPS fix (or None if location is off/unavailable)."""
+        return self.daemon._get_current_fix()
+
+    def update_own_location(self, lat: float, lon: float,
+                            accuracy: Optional[float] = None) -> None:
+        """Push a new own-position fix (platform GPS callback or manual)."""
+        from ..core.geo_tracker import ManualFixSource
+        self.daemon.set_fix_source(ManualFixSource(lat, lon, accuracy=accuracy))
+
+    def follow(self, source_hash: str) -> bool:
+        """Tap-to-follow a live-share peer; the map re-centers on them."""
+        return self.daemon.tracks.follow(source_hash)
+
+    def unfollow(self) -> None:
+        self.daemon.tracks.unfollow()
+
+    def followed(self) -> Optional[str]:
+        return self.daemon.tracks.followed
+
+    def followed_fix(self):
+        t = self.daemon.tracks.followed_track()
+        return t.fix if t is not None else None
+
+    def distance_units(self) -> str:
+        return self.daemon.settings.distance_units
+
+    def set_distance_units(self, units: str) -> None:
+        self.daemon.settings.set_distance_units(units)
+
+    def distance_to_fix(self, fix) -> Optional[str]:
+        """Formatted distance (km/mi per settings) from us to ``fix``; None if
+        our own location is unknown."""
+        own = self.own_fix()
+        if own is None or fix is None:
+            return None
+        km = haversine_km(own.lat, own.lon, fix.lat, fix.lon)
+        return format_distance(km, self.distance_units())
+
+    def tracks_with_distance(self) -> List[dict]:
+        """Peers with name, position, follow flag, and distance from us."""
+        own = self.own_fix()
+        units = self.distance_units()
+        followed = self.daemon.tracks.followed
+        rows = []
+        for t in self.daemon.tracks.list():
+            dist = None
+            if own is not None:
+                dist = format_distance(
+                    haversine_km(own.lat, own.lon, t.fix.lat, t.fix.lon), units)
+            rows.append({"hash": t.source_hash, "name": t.display_name,
+                         "lat": t.fix.lat, "lon": t.fix.lon,
+                         "distance": dist, "followed": t.source_hash == followed})
+        return rows
+
     def map_providers(self) -> List[dict]:
         return [{"key": p.key, "name": p.name} for p in PROVIDERS.values()]
 
@@ -209,7 +266,8 @@ class AppController:
     def settings_view(self) -> dict:
         s = self.daemon.settings
         return {"receive_only": s.receive_only_from_contacts,
-                "allow": sorted(s.allowlist), "deny": sorted(s.denylist)}
+                "allow": sorted(s.allowlist), "deny": sorted(s.denylist),
+                "distance_units": s.distance_units}
 
     def set_receive_only(self, value: bool) -> None:
         self.daemon.settings.set_receive_only_from_contacts(bool(value))
