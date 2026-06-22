@@ -26,7 +26,7 @@ phase. Build-order progress:
 | 8 | Map screen (live-track store + geo parse) | ✅ backend / UI next |
 | 9 | Incoming filter (receive-only-from-contacts + allow/deny) + bypass-silent hook | ✅ |
 | 10 | Preset system + panic engine | ✅ backend / UI next |
-| 11 | Dynamic hardware-key capture | ⏳ UI/platform |
+| 11 | Dynamic hardware-key capture | ✅ backend / capture deferred |
 | 12 | Shared-instance attach | ✅ |
 | 13 | Audio/photo channel over raw RNS link | ✅ backend |
 | 14 | Desktop UI pass | ⏳ Kivy |
@@ -78,6 +78,7 @@ tests), `--display-name <name>`.
 | `settings show\|receive-only\|allow\|deny\|forget` | Incoming filter + per-sender allow/deny |
 | `tracks list\|clear\|follow\|unfollow` | Live-sharing peers (map backend) |
 | `instance attach\|status\|detach` | Attach to a host app's shared RNS instance |
+| `keys add\|list\|remove\|feed` | Hardware-key combos -> preset triggers |
 | `alerts list` | Inspect pending alerts + per-recipient state |
 | `update [--check\|--tag\|--prerelease\|-y]` | Self-update from GitHub releases |
 

@@ -35,6 +35,7 @@ class AppConfig:
     groups_file: Path
     settings_file: Path
     shared_instance_file: Path
+    keys_file: Path
 
     @classmethod
     def resolve(cls, storage_dir: os.PathLike | str | None = None) -> "AppConfig":
@@ -53,6 +54,7 @@ class AppConfig:
             groups_file=base / "groups.json",
             settings_file=base / "settings.json",
             shared_instance_file=base / "shared_instance.json",
+            keys_file=base / "keys.json",
         )
 
     def ensure_dirs(self) -> None:

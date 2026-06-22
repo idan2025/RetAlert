@@ -26,6 +26,7 @@ from .core.live_tracks import LiveTrackStore
 from .core.incoming import IncomingDispatcher, encode_alert
 from .core.preset import Preset, PresetStore
 from .core.panic_engine import PanicEngine, PresetResolver
+from .core.hardware_keys import HardwareKeyManager, KeyCaptureBackend
 from .core.media_channel import MediaChannel, LinkAdapter, PHOTO, AUDIO
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from .transport.lxmf_transport import LXMFTransport
@@ -63,6 +64,8 @@ class EmergencyDaemon:
             start_live_share_fn=self.start_live_share,
             get_fix_fn=self._get_current_fix,
         )
+        self.keys = HardwareKeyManager(fire_fn=self._fire_trigger,
+                                       path=config.keys_file)
         self.discover = Discover(starred_path=config.starred_file)
         self.media = MediaChannel()  # ti + link_send_fn wired on start()
         self.tracks = LiveTrackStore()
@@ -305,6 +308,13 @@ class EmergencyDaemon:
             return self.geo.one_shot()
         except Exception:
             return None
+
+    def _fire_trigger(self, trigger: str) -> None:
+        """HardwareKeyManager fire callback -> PanicEngine.fire."""
+        try:
+            self.panic.fire(trigger)
+        except Exception:
+            log.exception("panic fire failed for trigger %r", trigger)
 
     # -- convenience ----------------------------------------------------
 

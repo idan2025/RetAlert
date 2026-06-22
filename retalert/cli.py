@@ -563,6 +563,38 @@ def cmd_panic(args) -> int:
     return 0
 
 
+def cmd_keys(args) -> int:
+    """Manage hardware-key combos -> preset triggers (step 11)."""
+    config = AppConfig.resolve(args.storage)
+    from .core.hardware_keys import HardwareKeyManager
+    km = HardwareKeyManager(fire_fn=lambda t: None, path=config.keys_file)
+    cmd = args.keys_cmd
+    if cmd == "add":
+        km.register(args.keys, args.trigger, arm=args.arm)
+        kind = "arm" if args.arm else "fire"
+        print(f"registered {kind} combo {tuple(args.keys)} -> {args.trigger}")
+    elif cmd == "list":
+        combos = km.list_combos()
+        if not combos:
+            print("(no key combos)")
+        for c in combos:
+            kind = "arm" if c.arm else "fire"
+            print(f"{kind}  {' '.join(c.combo)}  ->  {c.trigger}")
+    elif cmd == "remove":
+        ok = km.unregister(args.keys)
+        print("removed" if ok else "not found", tuple(args.keys))
+    elif cmd == "feed":
+        # Simulate a key sequence on a live daemon (fires the preset).
+        daemon = _make_daemon(args, start=True)
+        daemon.lxmf.announce()
+        fired = daemon.keys.feed_sequence(args.keys)
+        if fired is None:
+            print("(no combo matched / not armed)", file=sys.stderr)
+            return 1
+        print(f"fired trigger: {fired}")
+    return 0
+
+
 def cmd_instance(args) -> int:
     """Attach to / detach from a host app's shared RNS instance (step 12)."""
     config = AppConfig.resolve(args.storage)
@@ -819,6 +851,22 @@ def build_parser() -> argparse.ArgumentParser:
     sha.set_defaults(func=cmd_instance)
     shs.add_parser("status", help="show shared-instance config").set_defaults(func=cmd_instance)
     shs.add_parser("detach", help="return to standalone").set_defaults(func=cmd_instance)
+
+    # keys: hardware-key combo -> preset trigger (step 11).
+    kp = sub.add_parser("keys", help="map hardware-key combos to preset triggers")
+    kps = kp.add_subparsers(dest="keys_cmd", required=True)
+    ka = kps.add_parser("add", help="register a combo")
+    ka.add_argument("trigger", help="preset trigger name to fire")
+    ka.add_argument("keys", nargs="+", help="ordered key tokens (e.g. vol_down vol_down vol_down)")
+    ka.add_argument("--arm", action="store_true", help="this combo arms (does not fire)")
+    ka.set_defaults(func=cmd_keys)
+    kps.add_parser("list", help="list combos").set_defaults(func=cmd_keys)
+    kr = kps.add_parser("remove", help="remove a combo")
+    kr.add_argument("keys", nargs="+", help="key tokens of the combo")
+    kr.set_defaults(func=cmd_keys)
+    kf = kps.add_parser("feed", help="simulate a key sequence (fires on a live daemon)")
+    kf.add_argument("keys", nargs="+", help="key tokens to feed")
+    kf.set_defaults(func=cmd_keys)
 
     sp = sub.add_parser("update", help="self-update from GitHub releases")
     sp.add_argument("--check", action="store_true", help="only check, do not install")
