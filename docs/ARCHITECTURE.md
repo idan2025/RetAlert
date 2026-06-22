@@ -43,7 +43,7 @@ retalert/
 6. Contacts + discover/network screen — **done** (backend: AnnounceEngine + Discover; CLI: announce/auto, discover list/clear/star/unstar)
 7. Ad-hoc group assembly from contacts — **done** (Groups store + CLI group create/list/show/remove/add-member/remove-member; send --to-group fans out per-member)
 8. Map screen: live tracking + offline tiles — backend done (LiveTrackStore + geo parse); UI deferred (Kivy)
-9. Incoming bypass-silent/DND + receive-from-contacts toggle — **done** (IncomingDispatcher + Settings; bypass-silent hook stub)
+9. Incoming bypass-silent/DND + receive-from-contacts toggle + app-level ack — **done** (IncomingDispatcher + Settings; bypass-silent hook stub; v1 wire format `!RETALERT!id:<aid>!<sev>!<text>` + `!RETALERT!ack!<aid>` → AckTracker DELIVERED→ACKED)
 10. Preset system + on-screen panic button (Kivy) — preset backend **done** (Preset/PresetStore/PanicEngine/PresetResolver + CLI preset/panic); on-screen button + hold-to-confirm UI deferred (Kivy)
 11. Dynamic hardware-key capture — backend **done** (HardwareKeyManager: combo->trigger, arm-then-fire, cooldown dedup, persist; KeyCaptureBackend platform seam stub); Android accessibility / desktop hotkey capture deferred
 12. Shared-instance attach (Sideband/Columba/MeshChat/MeshChatX) — **done** (SharedInstanceManager: local socket or TCPClientInterface, RNS config render, host-identity reuse; CLI share attach/status/detach)

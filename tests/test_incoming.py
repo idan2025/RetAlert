@@ -5,7 +5,8 @@ import pytest
 
 from retalert.core.incoming import (
     IncomingDispatcher, IncomingMessage,
-    encode_alert, decode_alert, parse_geo_body, RETALERT_MARKER,
+    encode_alert, decode_alert, encode_ack, decode_ack,
+    parse_geo_body, RETALERT_MARKER,
 )
 from retalert.core.live_tracks import LiveTrackStore, LiveTrack
 from retalert.core.geo_tracker import Fix
@@ -16,14 +17,36 @@ from retalert.storage import Contacts, Settings
 
 def test_encode_decode_alert_roundtrip():
     body = encode_alert("danger", "help! roof collapsing")
-    sev, text = decode_alert(body)
+    alert_id, sev, text = decode_alert(body)
+    assert alert_id == ""  # v0 legacy
     assert sev == "danger"
     assert text == "help! roof collapsing"
+
+
+def test_encode_decode_alert_v1_with_alert_id():
+    body = encode_alert("danger", "help! now", alert_id="abc123")
+    assert body.startswith(f"{RETALERT_MARKER}id:abc123!")
+    alert_id, sev, text = decode_alert(body)
+    assert alert_id == "abc123"
+    assert sev == "danger"
+    assert text == "help! now"
 
 
 def test_decode_alert_returns_none_for_plain_text():
     assert decode_alert("just a message") is None
     assert decode_alert("") is None
+
+
+def test_encode_decode_ack_roundtrip():
+    body = encode_ack("abc123")
+    assert body == f"{RETALERT_MARKER}ack!abc123"
+    assert decode_ack(body) == "abc123"
+
+
+def test_decode_ack_returns_none_for_non_ack():
+    assert decode_ack("just a message") is None
+    assert decode_ack(encode_alert("danger", "help")) is None  # alert, not ack
+    assert decode_ack("") is None
 
 
 def test_parse_geo_body_basic():
@@ -46,7 +69,7 @@ def test_parse_geo_body_non_geo_returns_none():
 
 def test_alert_with_embedded_location():
     body = encode_alert("medical", "geo:40.0,-73.0 acc=5")
-    sev, text = decode_alert(body)
+    alert_id, sev, text = decode_alert(body)
     fix = parse_geo_body(text)
     assert sev == "medical"
     assert fix is not None and fix.lat == 40.0
@@ -265,3 +288,89 @@ def test_dispatcher_on_message_callback(tmp_path):
     d.handle("aa" * 16, "hi", 0.0)
     assert len(seen) == 1
     assert seen[0].text == "hi"
+
+
+# -- app-level ack (step 9) ---------------------------------------------
+
+def test_dispatcher_sends_ack_on_v1_alert(tmp_path):
+    contacts = Contacts(tmp_path / "c.json")
+    contacts.add("aa" * 16, "Alice")
+    acks = []
+    d = IncomingDispatcher(settings=Settings(tmp_path / "s.json"),
+                          contacts=contacts,
+                          send_ack_fn=lambda aid, src: acks.append((aid, src)))
+    body = encode_alert("danger", "help", alert_id="aid1")
+    msg = d.handle("aa" * 16, body, 0.0)
+    assert msg.kind == "alert"
+    assert msg.alert_id == "aid1"
+    assert acks == [("aid1", "aa" * 16)]
+
+
+def test_dispatcher_no_ack_for_v0_legacy_alert(tmp_path):
+    contacts = Contacts(tmp_path / "c.json")
+    contacts.add("aa" * 16, "Alice")
+    acks = []
+    d = IncomingDispatcher(settings=Settings(tmp_path / "s.json"),
+                          contacts=contacts,
+                          send_ack_fn=lambda aid, src: acks.append((aid, src)))
+    body = encode_alert("danger", "help")  # no alert_id
+    msg = d.handle("aa" * 16, body, 0.0)
+    assert msg.kind == "alert"
+    assert msg.alert_id == ""
+    assert acks == []  # nothing to ack
+
+
+def test_dispatcher_inbound_ack_calls_ack_cb(tmp_path):
+    contacts = Contacts(tmp_path / "c.json")
+    contacts.add("aa" * 16, "Alice")
+    acked = []
+    d = IncomingDispatcher(settings=Settings(tmp_path / "s.json"),
+                          contacts=contacts,
+                          ack_cb=lambda aid, src: acked.append((aid, src)))
+    msg = d.handle("aa" * 16, encode_ack("aid1"), 0.0)
+    assert msg.kind == "ack"
+    assert msg.alert_id == "aid1"
+    assert acked == [("aid1", "aa" * 16)]
+
+
+def test_dispatcher_ack_does_not_fire_bypass_silent(tmp_path):
+    contacts = Contacts(tmp_path / "c.json")
+    contacts.add("aa" * 16, "Alice")
+    fired = []
+    d = IncomingDispatcher(settings=Settings(tmp_path / "s.json"),
+                          contacts=contacts,
+                          ack_cb=lambda aid, src: None)
+    d.bypass_silent_cb = fired.append
+    d.handle("aa" * 16, encode_ack("aid1"), 0.0)
+    assert fired == []
+
+
+def test_app_ack_roundtrip_end_to_end(tmp_path):
+    """Sender alerts recipient 'aa' -> recipient acks -> sender AckTracker
+    moves 'aa' to ACKED."""
+    from retalert.core.ack_tracker import AckTracker
+    from retalert.core.alert import Alert, ACKED
+
+    contacts = Contacts(tmp_path / "c.json")
+    contacts.add("aa" * 16, "Alice")  # recipient is a known contact
+
+    # Recipient side: receives the alert, fires send_ack_fn back.
+    sent_acks = []
+    recv = IncomingDispatcher(settings=Settings(tmp_path / "rs.json"),
+                              contacts=contacts,
+                              send_ack_fn=lambda aid, src: sent_acks.append((aid, src)))
+    alert = Alert(severity="danger", text="help", recipients=["aa" * 16],
+                  alert_id="aid1")
+    ack = AckTracker()
+    ack.track(alert)
+    recv.handle("aa" * 16, encode_alert("danger", "help", alert_id="aid1"),
+                0.0)
+    # Recipient acked the alert_id back to the (implied) sender.
+    assert sent_acks == [("aid1", "aa" * 16)]
+
+    # Sender side: receives the ack from recipient 'aa' -> AckTracker.on_ack.
+    sender = IncomingDispatcher(settings=Settings(tmp_path / "ss.json"),
+                               contacts=contacts,
+                               ack_cb=ack.on_ack)
+    sender.handle("aa" * 16, encode_ack("aid1"), 0.0)
+    assert ack.state("aid1", "aa" * 16) == ACKED

@@ -13,9 +13,20 @@ Responsibilities:
   * Fire the bypass-silent hook for app-to-app alerts so a real emergency
     alarms at full volume on a muted phone (platform callback; stub here).
 
-Wire format (v0 POC, plain text so it also lands in Sideband/Columba
-inboxes readably):
+Wire format (plain text so it also lands in Sideband/Columba inboxes
+readably):
+
+  v0 (legacy, no app-ack):
     !RETALERT!<severity>!<text>
+  v1 (with alert_id for app-level ack):
+    !RETALERT!id:<alert_id>!<severity>!<text>
+
+The ``id:`` prefix on the first segment disambiguates v1 from v0 (whose
+first segment is the severity) even when the text body itself contains
+``!``.
+
+App-level ack (receiver -> sender, build step 9):
+    !RETALERT!ack!<alert_id>
 """
 from __future__ import annotations
 
@@ -31,25 +42,60 @@ log = logging.getLogger("retalert.incoming")
 
 # Marker distinguishing RetAlert app-to-app alerts from casual LXMF text.
 RETALERT_MARKER = "!RETALERT!"
+# v1 alert_id segment prefix (disambiguates from a v0 severity segment).
+_ALERT_ID_PREFIX = "id:"
+# Ack sub-marker: !RETALERT!ack!<alert_id>
+_ACK_SEG = "ack"
 
 _GEO_RE = re.compile(r"geo:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)")
 
 
-def encode_alert(severity: str, text: str) -> str:
-    """Wrap an outgoing alert body with the RetAlert marker + severity."""
+def encode_alert(severity: str, text: str, alert_id: str = "") -> str:
+    """Wrap an outgoing alert body with the RetAlert marker.
+
+    With ``alert_id`` (v1): ``!RETALERT!id:<alert_id>!<severity>!<text>``
+    so the receiver can ack it. Without (v0 legacy): the receiver treats it
+    as a plain alert with no app-level ack."""
+    if alert_id:
+        return f"{RETALERT_MARKER}{_ALERT_ID_PREFIX}{alert_id}!{severity}!{text}"
     return f"{RETALERT_MARKER}{severity}!{text}"
 
 
 def decode_alert(body: str):
     """If ``body`` carries a RetAlert alert marker, return
-    ``(severity, text)``; else ``None``."""
+    ``(alert_id, severity, text)`` (``alert_id`` is ``""`` for v0 legacy);
+    else ``None``. Ack messages are NOT alerts — see decode_ack."""
     if not body.startswith(RETALERT_MARKER):
         return None
     rest = body[len(RETALERT_MARKER):]
-    sev, _, text = rest.partition("!")
-    if not sev:
+    first, _, tail = rest.partition("!")
+    if not first:
         return None
-    return sev, text
+    # v1: first segment is the alert_id.
+    if first.startswith(_ALERT_ID_PREFIX):
+        alert_id = first[len(_ALERT_ID_PREFIX):]
+        sev, _, text = tail.partition("!")
+        if not sev:
+            return None
+        return alert_id, sev, text
+    # v0 legacy: first segment is the severity.
+    return "", first, tail
+
+
+def encode_ack(alert_id: str) -> str:
+    """Wire an app-level ack back to the alert's sender."""
+    return f"{RETALERT_MARKER}{_ACK_SEG}!{alert_id}"
+
+
+def decode_ack(body: str) -> Optional[str]:
+    """If ``body`` is an ack, return its ``alert_id``; else ``None``."""
+    if not body.startswith(RETALERT_MARKER):
+        return None
+    rest = body[len(RETALERT_MARKER):]
+    seg, _, alert_id = rest.partition("!")
+    if seg != _ACK_SEG or not alert_id:
+        return None
+    return alert_id
 
 
 def parse_geo_body(body: str) -> Optional[Fix]:
@@ -82,8 +128,9 @@ class IncomingMessage:
     source_hash: str
     text: str
     timestamp: float
-    kind: str = "text"          # text | geo | alert
+    kind: str = "text"          # text | geo | alert | ack
     severity: str = ""          # set for kind == "alert"
+    alert_id: str = ""          # set for kind == "alert" (v1) and "ack"
     fix: Optional[Fix] = None   # set for kind == "geo" / alert with location
 
     def as_dict(self) -> dict:
@@ -93,6 +140,7 @@ class IncomingMessage:
             "timestamp": self.timestamp,
             "kind": self.kind,
             "severity": self.severity,
+            "alert_id": self.alert_id,
             "fix": self.fix.as_dict() if self.fix else None,
         }
 
@@ -108,7 +156,9 @@ class IncomingDispatcher:
 
     def __init__(self, settings, contacts, discover=None,
                  tracks: Optional[LiveTrackStore] = None,
-                 on_message: Optional[Callable[[IncomingMessage], None]] = None):
+                 on_message: Optional[Callable[[IncomingMessage], None]] = None,
+                 send_ack_fn: Optional[Callable[[str, str], None]] = None,
+                 ack_cb: Optional[Callable[[str, str], None]] = None):
         self.settings = settings
         self.contacts = contacts
         self.discover = discover
@@ -117,6 +167,11 @@ class IncomingDispatcher:
         # Platform hook: called with the IncomingMessage for app-to-app
         # alerts so the receiver can bypass silent/DND. Stub logs only.
         self.bypass_silent_cb: Optional[Callable[[IncomingMessage], None]] = None
+        # App-level ack (step 9):
+        #   send_ack_fn(alert_id, source_hex) -> sends an ack back to sender
+        #   ack_cb(alert_id, source_hex)      -> AckTracker.on_ack on the sender
+        self.send_ack_fn = send_ack_fn
+        self.ack_cb = ack_cb
 
     # -- filter ---------------------------------------------------------
 
@@ -142,17 +197,31 @@ class IncomingDispatcher:
 
         msg = self._parse(src, text, timestamp)
 
-        # Geo updates the live-track store regardless of alert/text kind.
-        if msg.fix is not None:
-            name = ""
-            if self.discover is not None:
-                peer = self.discover.get(src)
-                if peer is not None:
-                    name = peer.display_name
-            self.tracks.update(src, msg.fix, display_name=name)
+        # App-level ack: hand to the tracker; no geo/bypass-silent side effects.
+        if msg.kind == "ack":
+            if self.ack_cb is not None:
+                try:
+                    self.ack_cb(msg.alert_id, src)
+                except Exception:
+                    log.exception("ack callback raised")
+        else:
+            # Geo updates the live-track store regardless of alert/text kind.
+            if msg.fix is not None:
+                name = ""
+                if self.discover is not None:
+                    peer = self.discover.get(src)
+                    if peer is not None:
+                        name = peer.display_name
+                self.tracks.update(src, msg.fix, display_name=name)
 
-        if msg.kind == "alert":
-            self._fire_bypass_silent(msg)
+            if msg.kind == "alert":
+                self._fire_bypass_silent(msg)
+                # Ack the alert back to its sender (v1 only).
+                if msg.alert_id and self.send_ack_fn is not None:
+                    try:
+                        self.send_ack_fn(msg.alert_id, src)
+                    except Exception:
+                        log.exception("send_ack callback raised")
 
         if self.on_message is not None:
             try:
@@ -162,13 +231,19 @@ class IncomingDispatcher:
         return msg
 
     def _parse(self, src: str, text: str, timestamp: float) -> IncomingMessage:
+        # App-level ack? (check before alert — ack also carries the marker)
+        ack_id = decode_ack(text or "")
+        if ack_id is not None:
+            return IncomingMessage(source_hash=src, text=text, timestamp=timestamp,
+                                   kind="ack", alert_id=ack_id)
         # App-to-app alert marker?
         decoded = decode_alert(text or "")
         if decoded is not None:
-            severity, body = decoded
+            alert_id, severity, body = decoded
             fix = parse_geo_body(body)  # alerts may carry a location too
             return IncomingMessage(source_hash=src, text=body, timestamp=timestamp,
-                                   kind="alert", severity=severity, fix=fix)
+                                   kind="alert", severity=severity,
+                                   alert_id=alert_id, fix=fix)
         # Live-share geo fix?
         fix = parse_geo_body(text or "")
         if fix is not None:

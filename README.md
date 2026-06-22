@@ -24,7 +24,7 @@ phase. Build-order progress:
 | 6 | Contacts + discover/network (announce listener) | ✅ |
 | 7 | Ad-hoc group assembly from contacts | ✅ |
 | 8 | Map screen (live-track store + geo parse) | ✅ backend / UI next |
-| 9 | Incoming filter (receive-only-from-contacts + allow/deny) + bypass-silent hook | ✅ |
+| 9 | Incoming filter (receive-only-from-contacts + allow/deny) + bypass-silent hook + app-level ack | ✅ |
 | 10 | Preset system + panic engine | ✅ backend / UI next |
 | 11 | Dynamic hardware-key capture | ✅ backend / capture deferred |
 | 12 | Shared-instance attach | ✅ |
@@ -145,9 +145,12 @@ retalert settings allow <hash>
 retalert settings deny <hash>
 ```
 
-App-to-app alerts (wire marker `!RETALERT!<sev>!<text>`) trigger the
-bypass-silent hook on the receiver so a real emergency alarms at full
-volume on a muted phone (platform callback; stub on desktop).
+App-to-app alerts (wire marker `!RETALERT!`) trigger the bypass-silent
+hook on the receiver so a real emergency alarms at full volume on a
+muted phone (platform callback; stub on desktop). The v1 wire format
+`!RETALERT!id:<alert_id>!<sev>!<text>` carries an `alert_id` so the
+receiver acks it back (`!RETALERT!ack!<alert_id>`); the sender's
+AckTracker moves that recipient `DELIVERED → ACKED`.
 
 ## Shared instance
 Attach to a host app's RNS instance instead of running your own `rnsd`:
@@ -169,7 +172,7 @@ removes its own temp artifacts. Options: `--check`, `--tag <tag>`,
 
 ## Tests
 ```sh
-pytest                             # full suite (141 tests)
+pytest                             # full suite (163 tests)
 ```
 
 ## License

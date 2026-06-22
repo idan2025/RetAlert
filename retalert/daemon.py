@@ -23,7 +23,7 @@ from .core.geo_tracker import GeoTracker, FixSource, Fix
 from .core.announce_engine import AnnounceEngine
 from .core.discover import Discover, AnnounceHandler, ASPECT_LXMF_DELIVERY
 from .core.live_tracks import LiveTrackStore
-from .core.incoming import IncomingDispatcher, encode_alert
+from .core.incoming import IncomingDispatcher, encode_alert, encode_ack
 from .core.preset import Preset, PresetStore
 from .core.panic_engine import PanicEngine, PresetResolver
 from .core.hardware_keys import HardwareKeyManager, KeyCaptureBackend
@@ -73,6 +73,8 @@ class EmergencyDaemon:
             settings=self.settings, contacts=self.contacts,
             discover=self.discover, tracks=self.tracks,
             on_message=self._on_parsed_incoming,
+            send_ack_fn=self._send_ack,
+            ack_cb=self._on_inbound_ack,
         )
         self.announce_engine = AnnounceEngine(self._do_announce)
         self._retry_thread: Optional[threading.Thread] = None
@@ -243,8 +245,9 @@ class EmergencyDaemon:
             self.ack.on_failed(alert.alert_id, recipient_hex, "lxmf failed")
 
         # Wrap the body with the RetAlert marker so receivers parse it as an
-        # app-to-app alert (bypass-silent) rather than casual text.
-        body = encode_alert(alert.severity, alert.text)
+        # app-to-app alert (bypass-silent) rather than casual text. Include
+        # the alert_id (v1) so the receiver can ack it back.
+        body = encode_alert(alert.severity, alert.text, alert_id=alert.alert_id)
         self.lxmf.send_message(recipient_hex, body,
                                on_delivered=on_delivered, on_failed=on_failed)
 
@@ -261,6 +264,17 @@ class EmergencyDaemon:
                 self._incoming_cb(msg)
             except Exception:
                 log.exception("incoming callback raised")
+
+    def _send_ack(self, alert_id: str, source_hex: str) -> None:
+        """Receiver side: ack an inbound app-to-app alert back to its sender."""
+        if self.lxmf is None:
+            log.warning("cannot send ack: daemon not started")
+            return
+        self.lxmf.send_message(source_hex, encode_ack(alert_id))
+
+    def _on_inbound_ack(self, alert_id: str, source_hex: str) -> None:
+        """Sender side: a recipient acked our alert -> ACKED."""
+        self.ack.on_ack(alert_id, source_hex)
 
     # -- location -------------------------------------------------------
 
