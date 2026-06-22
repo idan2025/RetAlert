@@ -52,3 +52,14 @@ settings.json
 alerts.json
 starred.json
 shared_instance.json
+
+# Android release signing keys — PRIVATE. Never commit. (Configure CI signing
+# via repo secrets; see docs/ANDROID_SIGNING.md.)
+*.keystore
+*.jks
+*.keystore.b64
+key.properties
+
+# Downloaded offline map caches
+maps/
+*.mbtiles

@@ -200,9 +200,11 @@ GitHub Actions, under [`.github/workflows`](.github/workflows):
 | `desktop.yml` | push / PR | Linux PyInstaller binary — **only when `main.py` exists** |
 | `release.yml` | tag `v*` | full GitHub Release: Python dist always, APK + desktop binary if present |
 
-The app builds are gated: until the Kivy UI lands there is nothing to compile,
-so those workflows detect-and-skip (staying green) and switch on automatically
-once the entrypoints appear. Cut a release with `git tag v0.1.0 && git push --tags`.
+The app builds are gated to app-code changes. Cut a release with
+`git tag v0.1.0 && git push --tags`. To ship a **signed** release APK, set up a
+keystore once — see [`docs/ANDROID_SIGNING.md`](docs/ANDROID_SIGNING.md)
+(`scripts/make-keystore.sh` + four repo secrets); without it the release APK is
+built unsigned.
 
 ## License
 MIT.
