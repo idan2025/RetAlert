@@ -62,7 +62,8 @@ class HomeScreen(Screen):
         nav = GridLayout(cols=3, size_hint_y=0.24, spacing=6)
         for label, screen in (("Send", "send"), ("Inbox", "inbox"),
                               ("Sent", "outbox"), ("Presets", "presets"),
-                              ("Contacts", "contacts"), ("Settings", "settings")):
+                              ("Map", "map"), ("Contacts", "contacts"),
+                              ("Settings", "settings")):
             b = Button(text=label)
             b.bind(on_release=lambda _w, s=screen: setattr(self.manager,
                                                            "current", s))
@@ -448,6 +449,117 @@ class SettingsScreen(Screen):
                              f"{', '.join(h[:8] for h in st['deny']) or '-'}")
 
 
+class MapScreen(Screen):
+    """Online map (selectable provider) with live-share peer markers, plus an
+    offline download of the visible area within a chosen radius (MBTiles)."""
+
+    def __init__(self, ctl: AppController, **kw):
+        super().__init__(**kw)
+        self.ctl = ctl
+        from retalert.core.map_tiles import PROVIDERS, get_provider
+        self._get_provider = get_provider
+        root = BoxLayout(orientation="vertical", padding=6, spacing=6)
+
+        bar = BoxLayout(size_hint_y=0.1, spacing=6)
+        back = Button(text="< Home", size_hint_x=0.3)
+        back.bind(on_release=lambda *_: setattr(self.manager, "current", "home"))
+        self.provider = Spinner(
+            text="osm", values=[p.key for p in PROVIDERS.values()])
+        self.provider.bind(text=lambda *_: self._apply_provider())
+        bar.add_widget(back)
+        bar.add_widget(self.provider)
+        root.add_widget(bar)
+
+        try:
+            from kivy_garden.mapview import MapView, MapMarker
+            self._MapMarker = MapMarker
+            self.mapview = MapView(zoom=11, lat=0.0, lon=0.0)
+            root.add_widget(self.mapview)
+            self._ok = True
+        except Exception as exc:  # mapview not installed -> graceful fallback
+            self.mapview = None
+            self._ok = False
+            root.add_widget(Label(text=f"map widget unavailable\n({exc})"))
+
+        dl = BoxLayout(size_hint_y=0.12, spacing=6)
+        self.radius = Spinner(text="10",
+                              values=[str(r) for r in ctl.map_radius_options()])
+        self.radius.bind(text=lambda *_: self._update_estimate())
+        self.dl_btn = Button(text="Download area")
+        self.dl_btn.bind(on_release=self._download)
+        dl.add_widget(Label(text="radius km", size_hint_x=0.3))
+        dl.add_widget(self.radius)
+        dl.add_widget(self.dl_btn)
+        root.add_widget(dl)
+
+        self.flash = Label(text="", size_hint_y=0.08)
+        root.add_widget(self.flash)
+        self.add_widget(root)
+        self._markers = []
+
+    def on_pre_enter(self, *_):
+        if self._ok:
+            self._apply_provider()
+            self._refresh_markers()
+            self._update_estimate()
+            self._ev = Clock.schedule_interval(lambda _dt:
+                                               self._refresh_markers(), 5)
+
+    def on_pre_leave(self, *_):
+        ev = getattr(self, "_ev", None)
+        if ev is not None:
+            ev.cancel()
+
+    def _apply_provider(self):
+        if not self._ok:
+            return
+        from kivy_garden.mapview import MapSource
+        p = self._get_provider(self.provider.text)
+        self.mapview.map_source = MapSource(
+            url=p.url_template, cache_key=p.key, min_zoom=0,
+            max_zoom=p.max_zoom, attribution=p.attribution)
+
+    def _refresh_markers(self):
+        if not self._ok:
+            return
+        for m in self._markers:
+            self.mapview.remove_marker(m)
+        self._markers = []
+        for t in self.ctl.tracks():
+            fix = getattr(t, "fix", None)
+            if fix is None:
+                continue
+            mk = self._MapMarker(lat=fix.lat, lon=fix.lon)
+            self.mapview.add_marker(mk)
+            self._markers.append(mk)
+
+    def _update_estimate(self):
+        if not self._ok:
+            return
+        n = self.ctl.estimate_offline_tiles(self.mapview.lat, self.mapview.lon,
+                                            int(self.radius.text))
+        self.flash.text = f"~{n} tiles for {self.radius.text} km here"
+
+    def _download(self, *_):
+        if not self._ok:
+            return
+        lat, lon = self.mapview.lat, self.mapview.lon
+        radius = int(self.radius.text)
+        provider = self.provider.text
+        self.dl_btn.disabled = True
+        self.flash.text = "downloading…"
+
+        def done(summary, error):
+            self.dl_btn.disabled = False
+            if error is not None:
+                self.flash.text = f"error: {error}"
+            else:
+                self.flash.text = (f"saved {summary['saved']}/"
+                                   f"{summary['requested']} tiles offline")
+        _run_bg(self.ctl.download_offline_map, lat, lon, radius, provider,
+                on_done=done)
+
+
 class RetAlertApp(App):
     def build(self):
         self.title = "RetAlert"
@@ -458,6 +570,7 @@ class RetAlertApp(App):
         sm.add_widget(SendScreen(self.ctl, name="send"))
         sm.add_widget(OutboxScreen(self.ctl, name="outbox"))
         sm.add_widget(PresetsScreen(self.ctl, name="presets"))
+        sm.add_widget(MapScreen(self.ctl, name="map"))
         sm.add_widget(ContactsScreen(self.ctl, name="contacts"))
         sm.add_widget(SettingsScreen(self.ctl, name="settings"))
         # Bring the daemon up off the UI thread so the window paints immediately.

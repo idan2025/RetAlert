@@ -18,7 +18,8 @@ source.exclude_dirs = tests,docs,.git,.github,.venv,stora,storb,.pytest_cache
 source.exclude_patterns = stora/*,storb/*,*.spec
 
 version = 0.1.0
-requirements = python3,kivy,rns,lxmf
+# mapview pulls requests; p4a needs its pure-Python transitive deps listed too.
+requirements = python3,kivy,kivy_garden.mapview,rns,lxmf,requests,urllib3,idna,charset-normalizer,certifi
 
 orientation = portrait
 fullscreen = 0
