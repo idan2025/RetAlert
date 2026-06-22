@@ -15,7 +15,7 @@ retalert/
     identity.py        create/load RNS.Identity (standalone)
     lxmf_transport.py  LXMRouter wrapper: announce, send_message, incoming cb
     rns_link.py        stub — raw RNS Link for live media (build step 13)
-    share_instance.py  stub — attach to Sideband/Columba/MeshChat/MeshChatX (step 12)
+    share_instance.py  attach to host RNS instance (local socket or TCP client) (step 12)
   core/
     alert.py              Alert model + delivery states
     panic_engine.py       PanicEngine: trigger->preset->alert dispatch (step 10)
@@ -45,7 +45,7 @@ retalert/
 9. Incoming bypass-silent/DND + receive-from-contacts toggle — **done** (IncomingDispatcher + Settings; bypass-silent hook stub)
 10. Preset system + on-screen panic button (Kivy) — preset backend **done** (Preset/PresetStore/PanicEngine/PresetResolver + CLI preset/panic); on-screen button + hold-to-confirm UI deferred (Kivy)
 11. Dynamic hardware-key capture
-12. Shared-instance attach (Sideband/Columba/MeshChat/MeshChatX)
+12. Shared-instance attach (Sideband/Columba/MeshChat/MeshChatX) — **done** (SharedInstanceManager: local socket or TCPClientInterface, RNS config render, host-identity reuse; CLI share attach/status/detach)
 13. Audio/photo channel over raw RNS link
 14. Desktop UI pass + interface-chip status bar
 15. Hardening, persistence, docs

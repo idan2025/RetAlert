@@ -564,6 +564,48 @@ def cmd_panic(args) -> int:
     return 0
 
 
+def cmd_instance(args) -> int:
+    """Attach to / detach from a host app's shared RNS instance (step 12)."""
+    config = AppConfig.resolve(args.storage)
+    from .transport.share_instance import SharedInstanceManager, HOSTS
+    mgr = SharedInstanceManager(config.shared_instance_file, config.rns_config_file)
+    cmd = args.instance_cmd
+    if cmd == "attach":
+        if args.mode == "tcp":
+            if not args.host or not args.port:
+                print("tcp attach needs --host and --port", file=sys.stderr)
+                return 1
+            mgr.attach_tcp(args.host, args.port, host_app=args.host_app,
+                           identity_path=args.identity)
+            print(f"attached (tcp) to {args.host}:{args.port}")
+        else:
+            mgr.attach_local(host_app=args.host_app, identity_path=args.identity)
+            print("attached (local shared instance)")
+        if args.identity:
+            print(f"  identity reuse: {args.identity}")
+        print("  restart the daemon for the new RNS config to take effect")
+        return 0
+    if cmd == "status":
+        cfg = mgr.status()
+        if not cfg.enabled:
+            print("shared-instance: off (standalone)")
+            return 0
+        print(f"shared-instance: on  mode={cfg.mode}")
+        if cfg.host_app:
+            print(f"  host app: {cfg.host_app}")
+        if cfg.mode == "tcp":
+            print(f"  target: {cfg.host}:{cfg.port}")
+        if cfg.identity_path:
+            print(f"  identity: {cfg.identity_path}")
+        print(f"  rns config: {config.rns_config_file}")
+        return 0
+    if cmd == "detach":
+        mgr.detach()
+        print("detached (standalone). restart the daemon.")
+        return 0
+    return 1
+
+
 def cmd_update(args) -> int:
     if args.check:
         rel = updater.check()
@@ -761,6 +803,23 @@ def build_parser() -> argparse.ArgumentParser:
     pcp.add_argument("--timeout", type=float, default=10.0,
                      help="seconds to wait for delivery state")
     pcp.set_defaults(func=cmd_panic)
+
+    # instance: attach to a host app's shared RNS instance (step 12).
+    # (named `instance`, not `share`, to avoid clashing with the step-5
+    #  `share` live-location command.)
+    shp = sub.add_parser("instance", help="attach/detach shared RNS instance")
+    shs = shp.add_subparsers(dest="instance_cmd", required=True)
+    sha = shs.add_parser("attach", help="attach to a host instance")
+    sha.add_argument("--mode", choices=["local", "tcp"], default="local",
+                     help="local (unix socket) or tcp (remote TCP server)")
+    sha.add_argument("--host", help="remote host (tcp mode)")
+    sha.add_argument("--port", type=int, help="remote TCP port (tcp mode)")
+    sha.add_argument("--host-app", choices=["sideband", "columba", "meshchat", "meshchatx"],
+                     help="which host app exposes the instance")
+    sha.add_argument("--identity", help="path to host identity file to reuse")
+    sha.set_defaults(func=cmd_instance)
+    shs.add_parser("status", help="show shared-instance config").set_defaults(func=cmd_instance)
+    shs.add_parser("detach", help="return to standalone").set_defaults(func=cmd_instance)
 
     sp = sub.add_parser("update", help="self-update from GitHub releases")
     sp.add_argument("--check", action="store_true", help="only check, do not install")
