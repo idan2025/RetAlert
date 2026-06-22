@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 
 @dataclass
@@ -83,3 +83,94 @@ class Presets:
     def save(self, presets: list) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(json.dumps({"presets": presets}, indent=2), "utf-8")
+
+
+@dataclass
+class Group:
+    """An ad-hoc group: a named subset of contact destination hashes.
+
+    Per PROMPT.md § Recipients & contacts, a group is just a named
+    contact-subset — alerts fan out to each member as an individual LXMF
+    destination. No persistent group destination or membership token.
+    """
+    name: str
+    members: List[str] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return {"name": self.name, "members": list(self.members)}
+
+
+class Groups:
+    """JSON-backed named groups of destination hashes, keyed by group name."""
+
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self._groups: dict[str, list[str]] = {}
+        self._load()
+
+    def _load(self) -> None:
+        if self.path.exists():
+            try:
+                data = json.loads(self.path.read_text("utf-8"))
+            except (json.JSONDecodeError, OSError):
+                data = {}
+            self._groups = {
+                g["name"]: [h.lower().strip() for h in g.get("members", [])]
+                for g in data.get("groups", [])
+            }
+
+    def _save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"groups": [Group(n, m).as_dict()
+                              for n, m in self._groups.items()]}
+        self.path.write_text(json.dumps(payload, indent=2), "utf-8")
+
+    def create(self, name: str, members: List[str]) -> bool:
+        """Create a new group. Returns False if the name already exists."""
+        name = name.strip()
+        if name in self._groups:
+            return False
+        self._groups[name] = [h.lower().strip() for h in members]
+        self._save()
+        return True
+
+    def remove(self, name: str) -> bool:
+        existed = name in self._groups
+        self._groups.pop(name, None)
+        if existed:
+            self._save()
+        return existed
+
+    def add_member(self, name: str, hash_hex: str) -> bool:
+        """Add a member to a group (idempotent). Returns False if group missing."""
+        name = name.strip()
+        if name not in self._groups:
+            return False
+        hash_hex = hash_hex.lower().strip()
+        if hash_hex not in self._groups[name]:
+            self._groups[name].append(hash_hex)
+            self._save()
+        return True
+
+    def remove_member(self, name: str, hash_hex: str) -> bool:
+        name = name.strip()
+        if name not in self._groups:
+            return False
+        hash_hex = hash_hex.lower().strip()
+        if hash_hex in self._groups[name]:
+            self._groups[name].remove(hash_hex)
+            self._save()
+            return True
+        return False
+
+    def list(self) -> List[Group]:
+        return [Group(n, m) for n, m in self._groups.items()]
+
+    def get(self, name: str) -> Optional[Group]:
+        name = name.strip()
+        members = self._groups.get(name)
+        return Group(name, list(members)) if members is not None else None
+
+    def members(self, name: str) -> List[str]:
+        g = self.get(name)
+        return g.members if g is not None else []

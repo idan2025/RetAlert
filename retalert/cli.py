@@ -29,7 +29,7 @@ from .core.announce_engine import (
     ANNOUNCE_MIN_INTERVAL, ANNOUNCE_MAX_INTERVAL,
     ANNOUNCE_PRESET_VALUES, ANNOUNCE_PRESETS, clamp_announce_interval,
 )
-from .storage import Contacts
+from .storage import Contacts, Groups
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from . import updater
 
@@ -95,32 +95,68 @@ def cmd_serve(args) -> int:
     return 0
 
 
+def _resolve_member_token(token: str, contacts: Contacts) -> str:
+    """Resolve a group-member token to a destination hash.
+
+    Accepts a hex hash (with or without colons) or a contact display name;
+    the latter is resolved to its stored hash. Raises LookupError if a name
+    token matches no contact and is not valid hex.
+    """
+    clean = token.strip().replace(":", "")
+    # Valid hex destination hash (RNS hashes are 16 bytes = 32 hex chars).
+    try:
+        bytes.fromhex(clean)
+        if len(clean) == 32:
+            return clean.lower()
+    except ValueError:
+        pass
+    # Otherwise treat as a contact display name.
+    for c in contacts.list():
+        if c.name == token.strip():
+            return c.hash
+    raise LookupError(f"cannot resolve member '{token}': not a hex hash "
+                      f"and not a known contact name")
+
+
 def cmd_send(args) -> int:
     daemon = _make_daemon(args, start=True)
     # Announce ourselves so the peer can reply / ack; allow time for the
     # remote announce to propagate so Identity.recall succeeds.
     daemon.lxmf.announce()
-    text = args.text
-    dest = args.dest.lower()
-    dest_hash_bytes = bytes.fromhex(dest.replace(":", ""))
+
+    if args.to_group:
+        members = daemon.expand_group(args.to_group)
+        if not members:
+            print(f"group '{args.to_group}' has no members or does not exist",
+                  file=sys.stderr)
+            return 1
+        recipients = members
+        label = f"group '{args.to_group}' ({len(members)} member(s))"
+    elif args.dest:
+        dest = args.dest.lower()
+        recipients = [dest]
+        label = dest
+    else:
+        print("specify a destination hash or --to-group NAME", file=sys.stderr)
+        return 1
+
+    # Actively request paths so peers re-announce to us; the retry flusher
+    # keeps trying until each path resolves and delivery confirms.
+    for r in recipients:
+        try:
+            RNS.Transport.request_path(bytes.fromhex(r.replace(":", "")))
+        except Exception:
+            pass
 
     alert = Alert(
         severity=args.severity,
-        text=text,
-        recipients=[dest],
+        text=args.text,
+        recipients=recipients,
         retry_interval=args.retry_interval,
         max_attempts=args.max_attempts,
     )
-
-    # Actively request the path so the peer re-announces to us; the retry
-    # flusher will keep trying until the path resolves and delivery confirms.
-    try:
-        RNS.Transport.request_path(dest_hash_bytes)
-    except Exception:
-        pass
-
     daemon.send_alert(alert)
-    print(f"alert {alert.alert_id} sent to {dest}: {text!r}")
+    print(f"alert {alert.alert_id} sent to {label}: {args.text!r}")
 
     deadline = time.monotonic() + args.timeout
     while time.monotonic() < deadline:
@@ -140,6 +176,55 @@ def cmd_send(args) -> int:
         return 3
     print("TIMEOUT (no delivery confirmation)", file=sys.stderr)
     return 4
+
+
+def cmd_group(args) -> int:
+    """Manage ad-hoc groups (named subsets of contacts)."""
+    config = AppConfig.resolve(args.storage)
+    contacts = Contacts(config.contacts_file)
+    groups = Groups(config.groups_file)
+    cmd = args.group_cmd
+    if cmd == "create":
+        members = [_resolve_member_token(t, contacts) for t in (args.members or [])]
+        ok = groups.create(args.name, members)
+        if not ok:
+            print(f"group '{args.name}' already exists", file=sys.stderr)
+            return 1
+        print(f"created group '{args.name}' with {len(members)} member(s)")
+    elif cmd == "list":
+        rows = groups.list()
+        if not rows:
+            print("(no groups)")
+        for g in rows:
+            print(f"{g.name}  ({len(g.members)} members)")
+    elif cmd == "show":
+        g = groups.get(args.name)
+        if g is None:
+            print(f"group '{args.name}' not found", file=sys.stderr)
+            return 1
+        print(f"{g.name}:")
+        for h in g.members:
+            c = contacts.get(h)
+            print(f"  {h}  {c.name if c else ''}")
+    elif cmd == "remove":
+        ok = groups.remove(args.name)
+        print("removed" if ok else "not found", args.name)
+    elif cmd == "add-member":
+        h = _resolve_member_token(args.member, contacts)
+        ok = groups.add_member(args.name, h)
+        if not ok:
+            print(f"group '{args.name}' not found", file=sys.stderr)
+            return 1
+        print(f"added {h} to {args.name}")
+    elif cmd == "remove-member":
+        h = _resolve_member_token(args.member, contacts)
+        ok = groups.remove_member(args.name, h)
+        if not ok:
+            print(f"not a member of '{args.name}' (or group missing)",
+                  file=sys.stderr)
+            return 1
+        print(f"removed {h} from {args.name}")
+    return 0
 
 
 def cmd_alerts(args) -> int:
@@ -349,8 +434,11 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_serve)
 
     sp = sub.add_parser("send", help="send one LXMF text alert")
-    sp.add_argument("dest", help="recipient delivery hash (hex)")
+    sp.add_argument("dest", nargs="?", default=None,
+                    help="recipient delivery hash (hex); omitted if --to-group")
     sp.add_argument("text", help="message text")
+    sp.add_argument("--to-group", default=None, metavar="NAME",
+                    help="send to every member of a saved group instead of one dest")
     sp.add_argument("--severity", choices=SEVERITIES, default="help",
                     help="alert severity (default: help)")
     sp.add_argument("--timeout", type=float, default=30.0, help="delivery wait seconds")
@@ -397,6 +485,30 @@ def build_parser() -> argparse.ArgumentParser:
     cr.set_defaults(func=cmd_contacts)
     cl = cps.add_parser("list", help="list contacts")
     cl.set_defaults(func=cmd_contacts)
+
+    # group: ad-hoc named subsets of contacts.
+    gp = sub.add_parser("group", help="manage ad-hoc groups (contact subsets)")
+    gps = gp.add_subparsers(dest="group_cmd", required=True)
+    gcr = gps.add_parser("create", help="create a group with optional members")
+    gcr.add_argument("name", help="group name")
+    gcr.add_argument("members", nargs="*", help="member hashes or contact names")
+    gcr.set_defaults(func=cmd_group)
+    gl = gps.add_parser("list", help="list groups")
+    gl.set_defaults(func=cmd_group)
+    gs = gps.add_parser("show", help="show group members")
+    gs.add_argument("name", help="group name")
+    gs.set_defaults(func=cmd_group)
+    grm = gps.add_parser("remove", help="delete a group")
+    grm.add_argument("name", help="group name")
+    grm.set_defaults(func=cmd_group)
+    gam = gps.add_parser("add-member", help="add a member to a group")
+    gam.add_argument("name", help="group name")
+    gam.add_argument("member", help="member hash or contact name")
+    gam.set_defaults(func=cmd_group)
+    grmm = gps.add_parser("remove-member", help="remove a member from a group")
+    grmm.add_argument("name", help="group name")
+    grmm.add_argument("member", help="member hash or contact name")
+    grmm.set_defaults(func=cmd_group)
 
     # announce: manual one-shot + auto-announce toggle.
     anp = sub.add_parser("announce", help="send / schedule LXMF delivery announces")

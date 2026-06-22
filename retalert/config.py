@@ -32,6 +32,7 @@ class AppConfig:
     alerts_file: Path
     lxmf_storage: Path
     starred_file: Path
+    groups_file: Path
 
     @classmethod
     def resolve(cls, storage_dir: os.PathLike | str | None = None) -> "AppConfig":
@@ -47,6 +48,7 @@ class AppConfig:
             alerts_file=base / "alerts.json",
             lxmf_storage=base / "lxmf",
             starred_file=base / "starred.json",
+            groups_file=base / "groups.json",
         )
 
     def ensure_dirs(self) -> None:

@@ -7,7 +7,7 @@ module map + current build status.
 ```
 retalert/
   config.py            paths + storage dir resolution + default config copy
-  storage.py           Contacts / Presets JSON persistence
+  storage.py           Contacts / Groups / Presets JSON persistence
   daemon.py            EmergencyDaemon: owns RNS + Identity + LXMFTransport
   updater.py           self-updater: GitHub releases, latest-tag default, self-cleaning
   cli.py / __main__.py CLI entrypoints (init/identity/serve/send/contacts/update)
@@ -37,7 +37,7 @@ retalert/
 4. Hail Mary fan-out + fast failover
 5. GPS one-shot, then live-share (LoRa throttle) — **done**
 6. Contacts + discover/network screen — **done** (backend: AnnounceEngine + Discover; CLI: announce/auto, discover list/clear/star/unstar)
-7. Ad-hoc group assembly from contacts
+7. Ad-hoc group assembly from contacts — **done** (Groups store + CLI group create/list/show/remove/add-member/remove-member; send --to-group fans out per-member)
 8. Map screen: live tracking + offline tiles
 9. Incoming bypass-silent/DND + receive-from-contacts toggle
 10. Preset system + on-screen panic button (Kivy)

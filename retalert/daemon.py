@@ -14,7 +14,7 @@ from typing import Callable, Optional
 import RNS
 
 from .config import AppConfig
-from .storage import Contacts, Presets
+from .storage import Contacts, Presets, Groups
 from .core.alert import Alert
 from .core.ack_tracker import AckTracker
 from .core.retry_queue import RetryQueue
@@ -42,6 +42,7 @@ class EmergencyDaemon:
         self.lxmf: Optional[LXMFTransport] = None
         self.contacts = Contacts(config.contacts_file)
         self.presets = Presets(config.presets_file)
+        self.groups = Groups(config.groups_file)
 
         self.ack = AckTracker()
         self.retry = RetryQueue(config.alerts_file, self.ack,
@@ -176,6 +177,28 @@ class EmergencyDaemon:
                          alert.alert_id, plan.mode, len(plan.interfaces))
         self.retry.enqueue(alert)
         return alert
+
+    def expand_group(self, name: str) -> list[str]:
+        """Return the member destination hashes for a saved group, or [] if
+        the group does not exist."""
+        return self.groups.members(name)
+
+    def send_to_group(self, group_name: str, *, severity: str = "help",
+                      text: str = "", retry_interval: float = 3.0,
+                      max_attempts: int = 0, fan_out: str = "critical") -> Alert:
+        """Build an alert addressed to every member of a group and send it.
+
+        Each member is an individual LXMF destination (no persistent group
+        destination). TransportIntelligence fans out per-recipient.
+        """
+        members = self.expand_group(group_name)
+        if not members:
+            raise LookupError(f"group '{group_name}' has no members "
+                              f"(or does not exist)")
+        alert = Alert(severity=severity, text=text, recipients=members,
+                      retry_interval=retry_interval,
+                      max_attempts=max_attempts, fan_out=fan_out)
+        return self.send_alert(alert)
 
     def _send_to_recipient(self, alert: Alert, recipient_hex: str) -> None:
         """Transport callback for RetryQueue: send to one recipient and wire
