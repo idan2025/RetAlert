@@ -80,6 +80,9 @@ tests), `--display-name <name>`.
 | `instance attach\|status\|detach` | Attach to a host app's shared RNS instance |
 | `keys add\|list\|remove\|feed` | Hardware-key combos -> preset triggers |
 | `alerts list` | Inspect pending alerts + per-recipient state |
+| `inbox list\|show\|remove\|clear` | Received app-to-app alerts (reply-by-id registry) |
+| `reply <alert_id> <text>` | Reply (ack + text) to a received alert by id |
+| `ack <alert_id>` | Manually re-ack a received alert by id |
 | `update [--check\|--tag\|--prerelease\|-y]` | Self-update from GitHub releases |
 
 ## Two-instance end-to-end test (same LAN)

@@ -254,6 +254,66 @@ def cmd_alerts(args) -> int:
     return 0
 
 
+def cmd_inbox(args) -> int:
+    """List / show / remove received app-to-app alerts (for reply-by-id)."""
+    config = AppConfig.resolve(args.storage)
+    daemon = EmergencyDaemon(config)
+    if args.inbox_cmd == "list":
+        entries = daemon.inbox.list()
+        if not entries:
+            print("(inbox empty)")
+            return 0
+        for e in entries:
+            print(f"{e.alert_id}  sev={e.severity or '-'}  from={e.source_hash}")
+            if e.text:
+                print(f"    {e.text!r}")
+    elif args.inbox_cmd == "show":
+        e = daemon.inbox.get(args.alert_id)
+        if e is None:
+            print(f"unknown alert_id {args.alert_id!r}", file=sys.stderr)
+            return 1
+        print(f"alert_id:  {e.alert_id}")
+        print(f"severity:  {e.severity}")
+        print(f"from:      {e.source_hash}")
+        print(f"text:      {e.text!r}")
+    elif args.inbox_cmd == "remove":
+        if daemon.inbox.remove(args.alert_id):
+            print(f"removed {args.alert_id}")
+            return 0
+        print(f"unknown alert_id {args.alert_id!r}", file=sys.stderr)
+        return 1
+    elif args.inbox_cmd == "clear":
+        n = daemon.inbox.clear()
+        print(f"cleared {n} entr(y/ies)")
+    return 0
+
+
+def cmd_reply(args) -> int:
+    """Reply (ack + text) to a received app-to-app alert by alert_id."""
+    daemon = _make_daemon(args, start=True)
+    daemon.lxmf.announce()
+    ok = daemon.reply_to_alert(args.alert_id, args.text)
+    if not ok:
+        print(f"unknown alert_id {args.alert_id!r} "
+              "(use 'retalert inbox list' to see received alerts)",
+              file=sys.stderr)
+        return 1
+    print(f"replied to {args.alert_id}: {args.text!r}")
+    return 0
+
+
+def cmd_ack(args) -> int:
+    """Manually ack a received app-to-app alert by alert_id."""
+    daemon = _make_daemon(args, start=True)
+    daemon.lxmf.announce()
+    ok = daemon.ack_alert(args.alert_id)
+    if not ok:
+        print(f"unknown alert_id {args.alert_id!r}", file=sys.stderr)
+        return 1
+    print(f"acked {args.alert_id}")
+    return 0
+
+
 def cmd_status(args) -> int:
     """Show classified interfaces + tiers + per-payload gating."""
     daemon = _make_daemon(args, start=True)
@@ -691,6 +751,29 @@ def build_parser() -> argparse.ArgumentParser:
     aps = ap.add_subparsers(dest="alerts_cmd", required=True)
     al = aps.add_parser("list", help="list pending alerts + per-recipient state")
     al.set_defaults(func=cmd_alerts)
+
+    ip = sub.add_parser("inbox", help="received app-to-app alerts (for reply-by-id)")
+    ips = ip.add_subparsers(dest="inbox_cmd")
+    ips.required = True
+    il = ips.add_parser("list", help="list received alerts")
+    il.set_defaults(func=cmd_inbox)
+    ish = ips.add_parser("show", help="show one received alert")
+    ish.add_argument("alert_id")
+    ish.set_defaults(func=cmd_inbox)
+    irm = ips.add_parser("remove", help="forget a received alert")
+    irm.add_argument("alert_id")
+    irm.set_defaults(func=cmd_inbox)
+    ic = ips.add_parser("clear", help="clear the inbox")
+    ic.set_defaults(func=cmd_inbox)
+
+    sp = sub.add_parser("reply", help="reply (ack + text) to a received alert by alert_id")
+    sp.add_argument("alert_id")
+    sp.add_argument("text", help="reply text")
+    sp.set_defaults(func=cmd_reply)
+
+    sp = sub.add_parser("ack", help="manually ack a received alert by alert_id")
+    sp.add_argument("alert_id")
+    sp.set_defaults(func=cmd_ack)
 
     sp = sub.add_parser("status", help="show interfaces, tiers, payload gating")
     sp.set_defaults(func=cmd_status)

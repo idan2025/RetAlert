@@ -24,6 +24,7 @@ from .core.announce_engine import AnnounceEngine
 from .core.discover import Discover, AnnounceHandler, ASPECT_LXMF_DELIVERY
 from .core.live_tracks import LiveTrackStore
 from .core.incoming import IncomingDispatcher, encode_alert, encode_ack, encode_reply
+from .core.inbox import InboxRegistry
 from .core.preset import Preset, PresetStore
 from .core.panic_engine import PanicEngine, PresetResolver
 from .core.hardware_keys import HardwareKeyManager, KeyCaptureBackend
@@ -69,6 +70,7 @@ class EmergencyDaemon:
         self.discover = Discover(starred_path=config.starred_file)
         self.media = MediaChannel()  # ti + link_send_fn wired on start()
         self.tracks = LiveTrackStore()
+        self.inbox = InboxRegistry(path=config.inbox_file)
         self.incoming = IncomingDispatcher(
             settings=self.settings, contacts=self.contacts,
             discover=self.discover, tracks=self.tracks,
@@ -259,7 +261,14 @@ class EmergencyDaemon:
         self.incoming.handle(source_hex, text, timestamp)
 
     def _on_parsed_incoming(self, msg) -> None:
-        """Forward a parsed IncomingMessage to the user-facing callback."""
+        """Forward a parsed IncomingMessage to the user-facing callback, and
+        record app-to-app alerts in the inbox so the user can reply by id."""
+        if msg.kind == "alert" and msg.alert_id:
+            try:
+                self.inbox.record(msg.alert_id, msg.source_hash,
+                                  msg.severity, msg.text, msg.timestamp)
+            except Exception:
+                log.exception("inbox record raised")
         if self._incoming_cb is not None:
             try:
                 self._incoming_cb(msg)
@@ -278,6 +287,27 @@ class EmergencyDaemon:
         if self.lxmf is None:
             raise RuntimeError("daemon not started")
         self.lxmf.send_message(source_hex, encode_reply(alert_id, reply))
+
+    def reply_to_alert(self, alert_id: str, reply: str) -> bool:
+        """Reply to a previously received alert (looked up by alert_id in the
+        inbox). Returns False if the alert_id is unknown."""
+        entry = self.inbox.get(alert_id)
+        if entry is None:
+            return False
+        self.send_reply(alert_id, entry.source_hash, reply)
+        return True
+
+    def ack_alert(self, alert_id: str) -> bool:
+        """Manually ack a previously received alert (the auto-ack already
+        fired on receipt; this is for an explicit re-ack). Returns False if
+        unknown."""
+        entry = self.inbox.get(alert_id)
+        if entry is None:
+            return False
+        if self.lxmf is None:
+            raise RuntimeError("daemon not started")
+        self.lxmf.send_message(entry.source_hash, encode_ack(alert_id))
+        return True
 
     def _on_inbound_ack(self, alert_id: str, source_hex: str) -> None:
         """Sender side: a recipient acked our alert -> ACKED."""
