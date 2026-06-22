@@ -18,6 +18,7 @@ from .storage import Contacts, Presets
 from .core.alert import Alert
 from .core.ack_tracker import AckTracker
 from .core.retry_queue import RetryQueue
+from .core.transport_intel import TransportIntelligence, FAN_OUT_CRITICAL
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from .transport.lxmf_transport import LXMFTransport
 
@@ -42,6 +43,7 @@ class EmergencyDaemon:
         self.ack = AckTracker()
         self.retry = RetryQueue(config.alerts_file, self.ack,
                                 send_fn=self._send_to_recipient)
+        self.ti: Optional[TransportIntelligence] = None
         self._retry_thread: Optional[threading.Thread] = None
         self._running = False
 
@@ -68,6 +70,7 @@ class EmergencyDaemon:
             configdir=str(self.config.rns_config_dir),
             loglevel=self.loglevel,
         )
+        self.ti = TransportIntelligence(reticulum=self.reticulum)
 
         self.lxmf = LXMFTransport(
             identity=self.identity,
@@ -110,11 +113,21 @@ class EmergencyDaemon:
     def send_alert(self, alert: Alert) -> Alert:
         """Enqueue + immediately send an alert to all its recipients.
 
-        RetryQueue persists it and re-sends to unacked recipients on its
-        flush loop until acked/failed.
+        TransportIntelligence produces the delivery plan (Hail Mary fan-out
+        vs sequential failover, tier gating). RetryQueue persists the alert
+        and re-sends to unacked recipients on its flush loop until acked/
+        failed. If no qualifying interface is up, the plan is queued and the
+        flusher retries once one appears.
         """
         if self.lxmf is None:
             raise RuntimeError("daemon not started")
+        if self.ti is not None:
+            plan = self.ti.delivery_plan(alert, fan_out=alert.fan_out)
+            if plan.queued:
+                log.warning("alert %s queued: %s", alert.alert_id, plan.reason)
+            else:
+                log.info("alert %s plan: %s on %d iface(s)",
+                         alert.alert_id, plan.mode, len(plan.interfaces))
         self.retry.enqueue(alert)
         return alert
 

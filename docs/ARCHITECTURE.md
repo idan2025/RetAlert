@@ -24,12 +24,13 @@ retalert/
     retry_queue.py        persistent unsent queue, fast retry (step 2)
     geo_tracker.py        stub — GPS one-shot + live-share (step 5)
     media_channel.py      stub — audio/photo over RNS Link (step 13)
-    transport_intel.py    stub — interface classify/rank/fanout/failover (steps 3-4)
+    transport_intel.py    interface classify/rank/fanout/failover (steps 3-4)
 ```
 
 ## Build order (from PROMPT.md)
 1. Daemon core + standalone identity + LXMF single-contact text alert (CLI) — **done**
 2. Ack tracking + RetryQueue — **done**
+3-4. TransportIntelligence: classify + tier policy + ranking + Hail Mary fan-out / fast failover — **done**
 3. TransportIntelligence: classify + tier policy + ranking
 4. Hail Mary fan-out + fast failover
 5. GPS one-shot, then live-share (LoRa throttle)

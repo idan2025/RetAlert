@@ -41,6 +41,8 @@ class Alert:
     # retry policy
     retry_interval: float = 3.0   # seconds between attempts while unacked
     max_attempts: int = 0         # 0 = unlimited (until ack/failed)
+    # transport plan: "off" | "critical" (default) | "all" (Hail Mary fan-out)
+    fan_out: str = "critical"
 
     def __post_init__(self):
         if not self.alert_id:
@@ -64,4 +66,5 @@ class Alert:
             payload=dict(d.get("payload", {})),
             retry_interval=float(d.get("retry_interval", 3.0)),
             max_attempts=int(d.get("max_attempts", 0)),
+            fan_out=d.get("fan_out", "critical"),
         )

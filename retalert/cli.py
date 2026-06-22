@@ -149,6 +149,30 @@ def cmd_alerts(args) -> int:
     return 0
 
 
+def cmd_status(args) -> int:
+    """Show classified interfaces + tiers + per-payload gating."""
+    daemon = _make_daemon(args, start=True)
+    if daemon.ti is None:
+        print("transport intelligence not initialised", file=sys.stderr)
+        return 1
+    print(f"identity:  {identity_hash_hex(daemon.identity)}")
+    print(f"delivery:  {daemon.delivery_hash_hex}")
+    print("\ninterfaces:")
+    ifaces = daemon.ti.classify_interfaces()
+    if not ifaces:
+        print("  (none)")
+    for i in ifaces:
+        flag = "up" if i.online else "down"
+        ov = f" [override:{i.user_override}]" if i.user_override else ""
+        print(f"  {i.tier:<6} {i.cls:<22} {i.name:<20} {flag}{ov}")
+    print("\npayload gating (currently-up tiers):")
+    for pc in ("text", "ack", "gps_oneshot", "gps_live", "photo", "audio"):
+        ok, best = daemon.ti.gate_payload(pc)
+        state = f"allow (best={best})" if ok else f"block (need higher tier; best={best})"
+        print(f"  {pc:<12} {state}")
+    return 0
+
+
 def cmd_contacts(args) -> int:
     config = AppConfig.resolve(args.storage)
     contacts = Contacts(config.contacts_file)
@@ -218,6 +242,9 @@ def build_parser() -> argparse.ArgumentParser:
     aps = ap.add_subparsers(dest="alerts_cmd", required=True)
     al = aps.add_parser("list", help="list pending alerts + per-recipient state")
     al.set_defaults(func=cmd_alerts)
+
+    sp = sub.add_parser("status", help="show interfaces, tiers, payload gating")
+    sp.set_defaults(func=cmd_status)
 
     cp = sub.add_parser("contacts", help="manage contacts")
     cps = cp.add_subparsers(dest="contacts_cmd", required=True)
