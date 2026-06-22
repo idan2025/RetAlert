@@ -225,4 +225,109 @@ Where RNS lets the app steer transport:
 - Columba — RNS/LXMF client; discover/contacts UX reference + share-instance target.
 - MeshChat / MeshChatX — LXMF clients (MeshChatX on Linux); share-instance targets.
 - Kivy + python-for-android / Buildozer — Android + desktop UI, single codebase.
+
+---
+
+# v0.2 — Handoff & remaining work
+
+Staff-pass for the next agent (Claude Code). Read this section first; it
+explains where v0.1 landed, the conventions to keep, the CI mechanics that bite,
+and the ordered v0.2 backlog. **Everything below "Reference stack" is the only
+part that changes between handoffs — keep it current.**
+
+## Where v0.1 landed (all green in CI)
+- **Backend + CLI**: complete. Daemon, transport intelligence, ack/retry,
+  presets/panic, contacts/groups/discover, incoming filter + app-level
+  ack/reply, shared-instance attach, media-channel + hardware-key + geo
+  *logic* (platform bindings still stubbed). ~250+ pytest tests.
+- **CLI round-trip**: send → `serve` (interactive console: `reply`/`ack`/
+  `inbox`/`quit`) → inbox registry → reply/ack by id.
+- **Kivy UI** (`main.py` + `retalert/ui/controller.py`): 8 screens — Home
+  (panic + interface/tier status), Send, Inbox (reply/ack), Outbox (per-
+  recipient ack state), Presets (one-tap fire), Map, Contacts, Settings.
+- **Map**: selectable tile providers; offline-area download to MBTiles
+  (radius 5/10/20/50/100 km); tap-to-follow real-time peer tracking (re-centers,
+  keeps zoom); km/mi distance readout; Android GPS + runtime location-permission
+  prompt (plyer).
+- **CI**: `ci.yml` (pytest 3.11–3.13 + wheel), `android.yml` (Buildozer APK —
+  **builds green, ~22 MB artifact**), `desktop.yml` (PyInstaller Linux binary),
+  `release.yml` (tag `v*` → GitHub Release with APK + desktop binary + wheel;
+  signing wired via secrets, hyphen tags = pre-release).
+- **Release signing**: `scripts/make-keystore.sh` + `docs/ANDROID_SIGNING.md`;
+  CI signs when the four `ANDROID_*` secrets are set, else builds unsigned.
+
+## Conventions — KEEP THESE
+1. **Testable-controller rule.** All UI logic goes in
+   `retalert/ui/controller.py` (no Kivy import) or `retalert/core/*`, with a
+   unit test. `main.py` stays a thin Kivy shell. The Kivy screens are validated
+   only by the desktop PyInstaller build compiling — so any real logic must be
+   in the controller/core where it can be pytested.
+2. **Network off the UI thread.** Screens call `_run_bg(fn, *args, on_done=cb)`;
+   results marshal back via `Clock`. Never block the Kivy thread on RNS/LXMF.
+3. **Guard platform imports.** `android.*`, `plyer`, `kivy_garden.mapview` are
+   imported lazily inside try/except so desktop/headless still runs.
+4. **Commit per step; push when a step is a coherent whole.** Batch app-code
+   commits and push together to avoid stacking ~30-min APK builds.
+
+## Build / test / run
+```sh
+.venv/bin/python -m pytest -q                  # full suite (run from repo root)
+pip install -e ".[ui]" && python main.py       # desktop app
+retalert --help                                # headless CLI
+python scripts/make_icon.py                     # regenerate data/icon.png
+```
+
+## CI gotchas (learned the hard way)
+- **APK builds with a direct Buildozer invocation**, not a Docker action (the
+  old `ArtemSBulgakov/buildozer-action` fails at its own image build). JDK 17 +
+  pinned `buildozer>=1.5` + `cython==0.29.36` (p4a breaks on Cython 3).
+- **`android.yml` is `cancel-in-progress: false`** — a new push must not kill a
+  running 30-min APK build. android/desktop have `paths:` filters (only rebuild
+  on app-code changes); the buildozer SDK/NDK cache key is
+  `hashFiles('buildozer.spec')`, so changing the spec forces a full rebuild.
+- **Desktop PyInstaller needs `xvfb-run` + `KIVY_GL_BACKEND=mock`** — the Kivy
+  hook imports `kivy.core.window` during analysis (needs a display).
+- **p4a needs transitive pure-Python deps listed explicitly** in
+  `buildozer.spec` `requirements` (e.g. mapview → requests, urllib3, idna,
+  charset-normalizer, certifi).
+- Watch a run: `gh run watch <id> --exit-status`; logs:
+  `gh run view <id> --log-failed`.
+
+## v0.2 backlog (ordered; each = one testable step where possible)
+1. **On-device media capture** (spec step 13 UI). Implement
+   `LinkAdapter.send` (`retalert/core/media_channel.py:219`) and `RNSLink`
+   (`retalert/transport/rns_link.py:16/19/22`) over a live `RNS.Link`; capture
+   via plyer camera + audio. Put framing/chunking logic in core with tests;
+   keep capture calls in `main.py`.
+2. **Foreground service** so the daemon keeps listening when backgrounded.
+   p4a service entrypoint + buildozer `services =`; `FOREGROUND_SERVICE` perm
+   already declared. Add a persistent notification.
+3. **Incoming-alert notification / bypass-silent** (spec step 9 UX). Wire
+   `IncomingDispatcher.bypass_silent_cb` (`retalert/core/incoming.py:193`) to a
+   platform notifier (plyer.notification + sound/vibrate) via the controller.
+4. **Offline map use + management.** Switch `MapView` to a downloaded MBTiles
+   source (`kivy_garden.mapview.mbtsource.MBTilesMapSource`); list/delete
+   offline maps (`controller.offline_maps()` exists); add a download progress
+   bar (downloader already takes a `progress` callback).
+5. **Hardware-key capture (Android)**: implement `KeyCaptureBackend.start`
+   (`retalert/core/hardware_keys.py:210`) — key-event service + permission
+   prompt → feeds `HardwareKeyManager`.
+6. **Desktop/own location without GPS**: implement `LinuxFixSource`
+   (`retalert/core/geo_tracker.py:125`) or add a manual "set my location" entry
+   on the Map screen (controller has `update_own_location`).
+7. **Signed v0.1.0 release**: user adds the keystore secrets
+   (`docs/ANDROID_SIGNING.md`), then `git tag v0.1.0 && git push --tags`.
+8. **Polish**: own-position marker distinct from peers + marker callouts;
+   multi-arch APK (add `armeabi-v7a`); bump actions off Node 20.
+9. **iOS** — deferred per spec (architecture allows BeeWare/native later).
+
+## Key files
+- `retalert/daemon.py` — orchestrator (owns RNS/LXMF + all stores).
+- `retalert/ui/controller.py` — UI façade (start here for any UI feature).
+- `main.py` — Kivy screens.
+- `retalert/core/` — all logic (alert, ack_tracker, retry_queue, transport_intel,
+  geo_tracker, live_tracks, incoming, inbox, preset, panic_engine, map_tiles,
+  media_channel, hardware_keys).
+- `.github/workflows/` — ci / android / desktop / release.
+- `buildozer.spec` — APK config (requirements, perms, icon, archs).
 - Map: offline-capable (MBTiles / OSM raster) map widget for Kivy (e.g. `mapview` or equivalent), online tiles opportunistic.
