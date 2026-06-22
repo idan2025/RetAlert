@@ -8,12 +8,28 @@ name: Android APK
 on:
   push:
     branches: [main]
+    paths:
+      - buildozer.spec
+      - main.py
+      - "retalert/**"
+      - pyproject.toml
+      - "requirements*.txt"
+      - .github/workflows/android.yml
   pull_request:
+    paths:
+      - buildozer.spec
+      - main.py
+      - "retalert/**"
+      - pyproject.toml
+      - "requirements*.txt"
+      - .github/workflows/android.yml
   workflow_dispatch:
 
+# Do NOT cancel an in-flight APK build on a new push — these take tens of
+# minutes; let the running one finish and queue the next.
 concurrency:
   group: android-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   detect:

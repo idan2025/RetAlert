@@ -7,7 +7,19 @@ name: Desktop build
 on:
   push:
     branches: [main]
+    paths:
+      - main.py
+      - "retalert/**"
+      - pyproject.toml
+      - "requirements*.txt"
+      - .github/workflows/desktop.yml
   pull_request:
+    paths:
+      - main.py
+      - "retalert/**"
+      - pyproject.toml
+      - "requirements*.txt"
+      - .github/workflows/desktop.yml
   workflow_dispatch:
 
 concurrency:
