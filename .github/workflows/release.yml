@@ -114,3 +114,5 @@ jobs:
           files: release-assets/*
           generate_release_notes: true
           fail_on_unmatched_files: false
+          # Tags with a suffix (v1.0.0-rc1, -beta) publish as pre-releases.
+          prerelease: ${{ contains(github.ref_name, '-') }}
