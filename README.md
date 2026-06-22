@@ -14,6 +14,14 @@ MeshChatX). Android + Linux desktop first, iOS later.
 Full design spec: [`PROMPT.md`](PROMPT.md). Architecture map:
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
+## Get the app
+- **Android:** download `retalert-*.apk` from the [latest release](../../releases),
+  allow "install from unknown sources", and install. (Release signing:
+  [`docs/ANDROID_SIGNING.md`](docs/ANDROID_SIGNING.md).)
+- **Linux desktop:** download the `retalert-desktop` binary from a release, or
+  run from source (`pip install -e ".[ui]" && python main.py`).
+- **Headless / CLI:** `pip install -e .` then `retalert --help`.
+
 ## Status
 Backend (Python core) implemented and tested via the headless CLI. UI phase
 in progress: a Kivy app (`main.py`) over a testable `retalert.ui.AppController`

@@ -12,10 +12,13 @@ package.domain = org.retalert
 
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,json
-source.include_patterns = config/*,retalert/*
+source.include_patterns = config/*,retalert/*,data/*
 # Keep the build lean: scratch storage, tests, and tooling stay out of the APK.
-source.exclude_dirs = tests,docs,.git,.github,.venv,stora,storb,.pytest_cache
+source.exclude_dirs = tests,docs,.git,.github,.venv,stora,storb,.pytest_cache,scripts
 source.exclude_patterns = stora/*,storb/*,*.spec
+
+icon.filename = %(source.dir)s/data/icon.png
+presplash.filename = %(source.dir)s/data/presplash.png
 
 version = 0.1.0
 # mapview pulls requests; p4a needs its pure-Python transitive deps listed too.
