@@ -18,7 +18,8 @@ from .storage import Contacts, Presets
 from .core.alert import Alert
 from .core.ack_tracker import AckTracker
 from .core.retry_queue import RetryQueue
-from .core.transport_intel import TransportIntelligence, FAN_OUT_CRITICAL
+from .core.transport_intel import TransportIntelligence, FAN_OUT_CRITICAL, LOW
+from .core.geo_tracker import GeoTracker, FixSource, Fix
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from .transport.lxmf_transport import LXMFTransport
 
@@ -44,6 +45,7 @@ class EmergencyDaemon:
         self.retry = RetryQueue(config.alerts_file, self.ack,
                                 send_fn=self._send_to_recipient)
         self.ti: Optional[TransportIntelligence] = None
+        self.geo: Optional[GeoTracker] = None
         self._retry_thread: Optional[threading.Thread] = None
         self._running = False
 
@@ -146,6 +148,44 @@ class EmergencyDaemon:
 
         self.lxmf.send_message(recipient_hex, alert.text,
                                on_delivered=on_delivered, on_failed=on_failed)
+
+    # -- location -------------------------------------------------------
+
+    def set_fix_source(self, fix_source: FixSource) -> None:
+        """Install a GPS fix source (manual/platform) for GeoTracker."""
+        self.geo = GeoTracker(fix_source)
+
+    def send_location(self, dest_hash_hex: str, fix: Fix) -> None:
+        """Send one GPS fix to a recipient as an LXMF message.
+
+        Step 5 sends a compact ``geo:lat,lon`` text body; step 8 (map) parses
+        incoming geo and renders it, and a structured LXMF field replaces the
+        text body.
+        """
+        if self.lxmf is None:
+            raise RuntimeError("daemon not started")
+        body = f"{fix.geo_uri} acc={fix.accuracy} alt={fix.altitude} src={fix.source}"
+        self.lxmf.send_message(dest_hash_hex, body)
+
+    def start_live_share(self, dest_hash_hex: str, interval: float) -> None:
+        """Begin periodic live location sharing to one recipient."""
+        if self.geo is None:
+            raise RuntimeError("no fix source set; call set_fix_source first")
+        if self.lxmf is None:
+            raise RuntimeError("daemon not started")
+        self.geo.start_live_share(
+            interval, send_fn=lambda fix: self.send_location(dest_hash_hex, fix))
+
+    def stop_live_share(self) -> None:
+        if self.geo is not None:
+            self.geo.stop_live_share()
+
+    def only_low_tier_up(self) -> bool:
+        """True if every up interface is Low tier (LoRa-only situation)."""
+        if self.ti is None:
+            return False
+        up = self.ti.up_interfaces()
+        return bool(up) and all(i.tier == LOW for i in up)
 
     # -- convenience ----------------------------------------------------
 

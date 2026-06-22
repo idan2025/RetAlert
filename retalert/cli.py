@@ -21,6 +21,10 @@ from . import __version__
 from .config import AppConfig
 from .daemon import EmergencyDaemon
 from .core.alert import Alert, SEVERITIES
+from .core.geo_tracker import (
+    GeoTracker, ManualFixSource, LinuxFixSource,
+    clamp_lora_throttle, LORA_THROTTLE_DEFAULT,
+)
 from .storage import Contacts
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from . import updater
@@ -173,6 +177,67 @@ def cmd_status(args) -> int:
     return 0
 
 
+def _fix_source_from_args(args):
+    """Build a FixSource from CLI args. Manual if --lat/--lon given; else
+    attempt the platform source (Linux on desktop, stub)."""
+    if args.lat is not None and args.lon is not None:
+        return ManualFixSource(args.lat, args.lon,
+                               accuracy=getattr(args, "accuracy", None))
+    # No manual coords: try platform source.
+    try:
+        return LinuxFixSource()
+    except Exception:
+        return None
+
+
+def cmd_locate(args) -> int:
+    """Get one GPS fix and print it (no RNS/daemon needed)."""
+    src = _fix_source_from_args(args)
+    if src is None:
+        print("no fix source on this platform; pass --lat and --lon", file=sys.stderr)
+        return 1
+    tracker = GeoTracker(src)
+    fix = tracker.one_shot()
+    if fix is None:
+        print("no fix available", file=sys.stderr)
+        return 2
+    print(fix.geo_uri)
+    print(f"  lat={fix.lat} lon={fix.lon} acc={fix.accuracy} alt={fix.altitude} "
+          f"src={fix.source} t={fix.timestamp}")
+    return 0
+
+
+def cmd_share(args) -> int:
+    """Live-share location to a contact over LXMF until Ctrl-C."""
+    daemon = _make_daemon(args, start=True)
+    daemon.lxmf.announce()
+    daemon.set_fix_source(ManualFixSource(args.lat, args.lon))
+
+    # Apply LoRa throttle when LoRa is the sole up interface.
+    if daemon.only_low_tier_up():
+        interval = clamp_lora_throttle(args.lora_interval)
+        print(f"only LoRa up -> throttling live-share to {interval}s")
+    else:
+        interval = args.interval
+        print(f"live-share every {interval}s to {args.dest}")
+
+    dest_hash_bytes = bytes.fromhex(args.dest.replace(":", ""))
+    try:
+        RNS.Transport.request_path(dest_hash_bytes)
+    except Exception:
+        pass
+
+    daemon.start_live_share(args.dest, interval)
+    print("sharing. Ctrl-C to stop.")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nstopping.")
+        daemon.stop_live_share()
+    return 0
+
+
 def cmd_contacts(args) -> int:
     config = AppConfig.resolve(args.storage)
     contacts = Contacts(config.contacts_file)
@@ -245,6 +310,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("status", help="show interfaces, tiers, payload gating")
     sp.set_defaults(func=cmd_status)
+
+    sp = sub.add_parser("locate", help="get one GPS fix and print it")
+    sp.add_argument("--lat", type=float, help="manual latitude (no GPS on desktop)")
+    sp.add_argument("--lon", type=float, help="manual longitude (no GPS on desktop)")
+    sp.add_argument("--accuracy", type=float, default=None, help="fix accuracy in metres")
+    sp.set_defaults(func=cmd_locate)
+
+    sp = sub.add_parser("share", help="live-share location to a contact over LXMF")
+    sp.add_argument("dest", help="recipient delivery hash (hex)")
+    sp.add_argument("--lat", type=float, required=True, help="latitude to share")
+    sp.add_argument("--lon", type=float, required=True, help="longitude to share")
+    sp.add_argument("--interval", type=float, default=5.0,
+                    help="seconds between fixes (normal/fast interfaces)")
+    sp.add_argument("--lora-interval", type=float, default=LORA_THROTTLE_DEFAULT,
+                    help="throttle seconds when only LoRa is up (10-3600, default 60)")
+    sp.set_defaults(func=cmd_share)
 
     cp = sub.add_parser("contacts", help="manage contacts")
     cps = cp.add_subparsers(dest="contacts_cmd", required=True)

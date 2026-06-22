@@ -22,7 +22,7 @@ retalert/
     preset_resolver.py    stub — trigger->preset (step 10)
     ack_tracker.py        per-recipient delivery/ack state (step 2)
     retry_queue.py        persistent unsent queue, fast retry (step 2)
-    geo_tracker.py        stub — GPS one-shot + live-share (step 5)
+    geo_tracker.py        GPS one-shot + live-share thread + LoRa throttle (step 5)
     media_channel.py      stub — audio/photo over RNS Link (step 13)
     transport_intel.py    interface classify/rank/fanout/failover (steps 3-4)
 ```
@@ -33,7 +33,7 @@ retalert/
 3-4. TransportIntelligence: classify + tier policy + ranking + Hail Mary fan-out / fast failover — **done**
 3. TransportIntelligence: classify + tier policy + ranking
 4. Hail Mary fan-out + fast failover
-5. GPS one-shot, then live-share (LoRa throttle)
+5. GPS one-shot, then live-share (LoRa throttle) — **done**
 6. Contacts + discover/network screen
 7. Ad-hoc group assembly from contacts
 8. Map screen: live tracking + offline tiles
