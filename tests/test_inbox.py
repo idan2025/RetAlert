@@ -225,6 +225,89 @@ def test_ack_alert_known_sends_ack(tmp_path):
     assert daemon.lxmf.sent == [("aa" * 16, encode_ack("aid1"))]
 
 
+class _FakeServeDaemon:
+    """Minimal stand-in for the serve console command dispatcher."""
+
+    def __init__(self, entries=(), known=()):
+        self.inbox = type("I", (), {"list": lambda self_: list(entries)})()
+        self._known = set(known)
+        self.replied = []
+        self.acked = []
+
+    def reply_to_alert(self, alert_id, text):
+        if alert_id in self._known:
+            self.replied.append((alert_id, text))
+            return True
+        return False
+
+    def ack_alert(self, alert_id):
+        if alert_id in self._known:
+            self.acked.append(alert_id)
+            return True
+        return False
+
+
+def test_serve_command_reply_known(capsys):
+    from retalert.cli import _serve_command
+    d = _FakeServeDaemon(known={"aid1"})
+    assert _serve_command(d, "reply aid1 on my way now") is True
+    assert d.replied == [("aid1", "on my way now")]  # text keeps its spaces
+    assert "replied to aid1" in capsys.readouterr().out
+
+
+def test_serve_command_reply_unknown(capsys):
+    from retalert.cli import _serve_command
+    d = _FakeServeDaemon()
+    _serve_command(d, "reply nope hi")
+    assert d.replied == []
+    assert "unknown alert_id" in capsys.readouterr().out
+
+
+def test_serve_command_reply_missing_text(capsys):
+    from retalert.cli import _serve_command
+    d = _FakeServeDaemon(known={"aid1"})
+    _serve_command(d, "reply aid1")
+    assert d.replied == []
+    assert "usage: reply" in capsys.readouterr().out
+
+
+def test_serve_command_ack(capsys):
+    from retalert.cli import _serve_command
+    d = _FakeServeDaemon(known={"aid1"})
+    assert _serve_command(d, "ack aid1") is True
+    assert d.acked == ["aid1"]
+    assert "acked aid1" in capsys.readouterr().out
+
+
+def test_serve_command_inbox_lists(capsys):
+    from retalert.cli import _serve_command
+    e = InboxEntry("aid1", "aa" * 16, "danger", "help", 0.0)
+    _serve_command(_FakeServeDaemon(entries=[e]), "inbox")
+    out = capsys.readouterr().out
+    assert "aid1" in out and "danger" in out
+
+
+def test_serve_command_quit_returns_false():
+    from retalert.cli import _serve_command
+    assert _serve_command(_FakeServeDaemon(), "quit") is False
+    assert _serve_command(_FakeServeDaemon(), "q") is False
+
+
+def test_serve_command_empty_line_noop(capsys):
+    from retalert.cli import _serve_command
+    assert _serve_command(_FakeServeDaemon(), "   ") is True
+    assert capsys.readouterr().out == ""
+
+
+def test_serve_command_help_and_unknown(capsys):
+    from retalert.cli import _serve_command
+    _serve_command(_FakeServeDaemon(), "help")
+    _serve_command(_FakeServeDaemon(), "bogus")
+    out = capsys.readouterr().out
+    assert "reply <id> <text>" in out
+    assert "unknown command" in out
+
+
 def test_print_incoming_alert_shows_reply_hint(capsys):
     from retalert.cli import _print_incoming
     _print_incoming(_alert_msg(alert_id="aid9", text="help"))

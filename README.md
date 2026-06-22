@@ -63,7 +63,7 @@ tests), `--display-name <name>`.
 |---------|---------|
 | `init` | Create identity + default RNS config + storage dirs |
 | `identity` | Print identity + LXMF delivery hashes |
-| `serve` | Announce + listen; prints incoming alerts/geo/text |
+| `serve` | Announce + listen; prints incoming alerts/geo/text. Interactive console: `reply <id> <text>`, `ack <id>`, `inbox`, `quit` |
 | `send [dest] <text>` | Send a text alert (`--to-group NAME`, `--severity`, `--timeout`) |
 | `panic [preset]` | Fire a preset (trigger -> alert dispatch) |
 | `status` | Interfaces, tiers, per-payload gating |

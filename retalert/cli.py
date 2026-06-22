@@ -11,6 +11,7 @@ Commands:
 from __future__ import annotations
 
 import argparse
+import select
 import sys
 import time
 from typing import Optional
@@ -95,6 +96,45 @@ def _print_incoming(msg) -> None:
               end="", flush=True)
 
 
+_SERVE_HELP = "commands: reply <id> <text> | ack <id> | inbox | help | quit"
+
+
+def _serve_command(daemon, line: str) -> bool:
+    """Dispatch one line typed at the serve console. Returns False to quit."""
+    parts = line.strip().split(maxsplit=2)
+    if not parts:
+        return True
+    cmd = parts[0].lower()
+    if cmd in ("quit", "exit", "q"):
+        return False
+    elif cmd == "help":
+        print(_SERVE_HELP)
+    elif cmd == "inbox":
+        entries = daemon.inbox.list()
+        if not entries:
+            print("(inbox empty)")
+        for e in entries:
+            print(f"  {e.alert_id}  [{e.severity or '-'}] "
+                  f"from {e.source_hash}: {e.text!r}")
+    elif cmd == "reply":
+        if len(parts) < 3:
+            print("usage: reply <alert_id> <text>")
+        elif daemon.reply_to_alert(parts[1], parts[2]):
+            print(f"replied to {parts[1]}")
+        else:
+            print(f"unknown alert_id {parts[1]!r} (try 'inbox')")
+    elif cmd == "ack":
+        if len(parts) < 2:
+            print("usage: ack <alert_id>")
+        elif daemon.ack_alert(parts[1]):
+            print(f"acked {parts[1]}")
+        else:
+            print(f"unknown alert_id {parts[1]!r} (try 'inbox')")
+    else:
+        print(f"unknown command {cmd!r} (try 'help')")
+    return True
+
+
 def cmd_serve(args) -> int:
     daemon = _make_daemon(args, start=True)
     daemon.set_incoming_callback(_print_incoming)
@@ -102,18 +142,32 @@ def cmd_serve(args) -> int:
     print(f"delivery:  {daemon.delivery_hash_hex}")
     print(f"filter:    receive-only-from-contacts="
           f"{daemon.settings.receive_only_from_contacts}")
-    print("listening for LXMF messages. Ctrl-C to quit.\nretalert> ", end="", flush=True)
-    # Re-announce periodically so peers that connect later still hear us.
+    print(f"listening for LXMF messages. {_SERVE_HELP}\nretalert> ",
+          end="", flush=True)
+    # Read typed console commands (reply/ack/inbox) when stdin is interactive,
+    # while re-announcing periodically so peers that connect later still hear
+    # us. select() lets one loop do both without a reader thread; if stdin is
+    # not a tty (piped/headless) we just poll on a timer.
+    interactive = bool(getattr(sys.stdin, "isatty", lambda: False)())
     last_announce = time.monotonic()
     try:
         while True:
-            time.sleep(1)
+            if interactive and select.select([sys.stdin], [], [], 1)[0]:
+                line = sys.stdin.readline()
+                if not line:  # EOF (Ctrl-D)
+                    break
+                if not _serve_command(daemon, line):
+                    break
+                print("retalert> ", end="", flush=True)
+            elif not interactive:
+                time.sleep(1)
             if time.monotonic() - last_announce >= 5:
                 daemon.lxmf.announce()
                 last_announce = time.monotonic()
     except KeyboardInterrupt:
-        print("\nbye.")
-        daemon.stop()
+        pass
+    print("\nbye.")
+    daemon.stop()
     return 0
 
 
