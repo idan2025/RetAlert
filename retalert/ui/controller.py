@@ -12,10 +12,16 @@ import threading
 from collections import deque
 from typing import Deque, Dict, List, Optional
 
+from pathlib import Path
+
 from ..config import AppConfig
 from ..daemon import EmergencyDaemon
 from ..core.alert import Alert
 from ..core.preset import PAYLOAD_CLASSES
+from ..core.map_tiles import (
+    PROVIDERS, RADIUS_OPTIONS, DEFAULT_PROVIDER, get_provider,
+    estimate_tile_count, TileDownloader,
+)
 
 
 class AppController:
@@ -158,6 +164,45 @@ class AppController:
     def discovered(self):
         """Heard-announce peers (Columba-style discover list)."""
         return self.daemon.discover.list()
+
+    # -- map / live tracks ---------------------------------------------
+
+    def tracks(self):
+        """Live-share peers (markers for the map)."""
+        return self.daemon.tracks.list()
+
+    def map_providers(self) -> List[dict]:
+        return [{"key": p.key, "name": p.name} for p in PROVIDERS.values()]
+
+    def map_radius_options(self) -> List[int]:
+        return list(RADIUS_OPTIONS)
+
+    def maps_dir(self) -> Path:
+        d = Path(self.config.storage_dir) / "maps"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def offline_maps(self) -> List[str]:
+        """Paths of downloaded .mbtiles offline maps."""
+        return sorted(str(p) for p in self.maps_dir().glob("*.mbtiles"))
+
+    def estimate_offline_tiles(self, lat: float, lon: float,
+                               radius_km: float, zooms=None) -> int:
+        return estimate_tile_count(lat, lon, radius_km, zooms)
+
+    def download_offline_map(self, lat: float, lon: float, radius_km: float,
+                             provider: str = DEFAULT_PROVIDER, zooms=None,
+                             progress=None, out_path: Optional[str] = None,
+                             fetch=None) -> dict:
+        """Download an offline map (MBTiles) around (lat, lon). ``fetch`` is
+        injectable for testing; production uses the module's HTTP fetch."""
+        prov = get_provider(provider)
+        if out_path is None:
+            name = f"{provider}_r{int(radius_km)}_{lat:.3f}_{lon:.3f}.mbtiles"
+            out_path = str(self.maps_dir() / name)
+        downloader = TileDownloader(prov, fetch=fetch)
+        return downloader.download(lat, lon, radius_km, out_path, zooms=zooms,
+                                   progress=progress)
 
     # -- incoming filter / settings ------------------------------------
 

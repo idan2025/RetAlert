@@ -194,6 +194,32 @@ def test_add_remove_contact(tmp_path):
     assert c.contacts() == []
 
 
+def test_map_providers_and_radius(tmp_path):
+    c = _ctl(tmp_path)
+    keys = [p["key"] for p in c.map_providers()]
+    assert "osm" in keys
+    assert c.map_radius_options() == [5, 10, 20, 50, 100]
+
+
+def test_estimate_and_no_offline_maps_initially(tmp_path):
+    c = _ctl(tmp_path)
+    assert c.estimate_offline_tiles(40.0, -73.0, 5) > 0
+    assert c.offline_maps() == []
+
+
+def test_download_offline_map_writes_mbtiles(tmp_path):
+    c = _ctl(tmp_path)
+    summary = c.download_offline_map(40.0, -73.0, 5, provider="osm",
+                                     zooms=[12], fetch=lambda url: b"TILE")
+    assert summary["saved"] == summary["requested"] > 0
+    maps = c.offline_maps()
+    assert len(maps) == 1 and maps[0].endswith(".mbtiles")
+
+
+def test_tracks_empty_initially(tmp_path):
+    assert _ctl(tmp_path).tracks() == []
+
+
 def test_start_is_idempotent_flag(tmp_path):
     c = _ctl(tmp_path)
     # Simulate started without bringing up RNS.
