@@ -1,0 +1,24 @@
+# RetAlert default Reticulum configuration.
+# Copied into each storage dir on first `retalert init`.
+# AutoInterface is enabled so LAN peers discover each other with zero config.
+
+[reticulum]
+  # Route for other peers? Only for always-on stationary nodes.
+  enable_transport = False
+
+  # Share one local RNS instance across local RetAlert/other RNS apps.
+  # Set to No to force this storage dir to run its own independent instance
+  # (useful for running two test instances on one machine).
+  share_instance = Yes
+  instance_name = default
+
+[logging]
+  # 0 critical .. 7 extreme. 3 = notices, default 4 = info.
+  loglevel = 3
+
+[interfaces]
+
+  # Link-local UDP discovery. Works on LAN/Wi-Fi with no extra infra.
+  [[Default Interface]]
+    type = AutoInterface
+    enabled = Yes

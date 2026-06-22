@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Testing / scratch storage (per-instance data, not source)
+stora/
+storb/
+storage/
+*.retalert
+
+# Local RNS instance data
+.rns/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Buildozer / p4a (Android, later)
+.buildozer/
+bin/
+.build/
+
+# Maps / offline tile caches (later)
+tiles_cache/
