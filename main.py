@@ -471,7 +471,9 @@ class MapScreen(Screen):
         from retalert.core.map_tiles import PROVIDERS, get_provider
         self._get_provider = get_provider
         self._peer_map = {}      # spinner label -> source hash
+        self._offline_map = {}   # basename -> .mbtiles path
         self._markers = []
+        self._dl = None          # (done, total) while a download runs
         root = BoxLayout(orientation="vertical", padding=6, spacing=6)
 
         bar = BoxLayout(size_hint_y=0.1, spacing=6)
@@ -517,6 +519,20 @@ class MapScreen(Screen):
         dl.add_widget(self.dl_btn)
         root.add_widget(dl)
 
+        off = BoxLayout(size_hint_y=0.12, spacing=6)
+        self.offline = Spinner(text="(no offline maps)", values=[])
+        use = Button(text="Use", size_hint_x=0.2)
+        use.bind(on_release=self._use_offline)
+        online = Button(text="Online", size_hint_x=0.28)
+        online.bind(on_release=lambda *_: self._apply_provider())
+        rm = Button(text="Del", size_hint_x=0.2)
+        rm.bind(on_release=self._delete_offline)
+        off.add_widget(self.offline)
+        off.add_widget(use)
+        off.add_widget(online)
+        off.add_widget(rm)
+        root.add_widget(off)
+
         self.flash = Label(text="", size_hint_y=0.08)
         root.add_widget(self.flash)
         self.add_widget(root)
@@ -524,6 +540,7 @@ class MapScreen(Screen):
     def on_pre_enter(self, *_):
         if self._ok:
             self._apply_provider()
+            self._refresh_offline_list()
             self._tick(0)
             self._update_estimate()
             # 2s cadence so a followed peer is tracked in near real time.
@@ -590,6 +607,10 @@ class MapScreen(Screen):
         else:
             self.follow_btn.text = "Follow"
             self.dist.text = ""
+        # Download progress (set from the worker thread).
+        if self._dl is not None:
+            i, n = self._dl
+            self.flash.text = f"downloading {i}/{n}…"
 
     def _update_estimate(self):
         if not self._ok:
@@ -598,6 +619,10 @@ class MapScreen(Screen):
                                             int(self.radius.text))
         self.flash.text = f"~{n} tiles for {self.radius.text} km here"
 
+    def _on_dl_progress(self, i, n):
+        # Written from the download thread; rendered by _tick on the UI thread.
+        self._dl = (i, n)
+
     def _download(self, *_):
         if not self._ok:
             return
@@ -605,17 +630,49 @@ class MapScreen(Screen):
         radius = int(self.radius.text)
         provider = self.provider.text
         self.dl_btn.disabled = True
-        self.flash.text = "downloading…"
+        self._dl = (0, 1)
+
+        def job():
+            return self.ctl.download_offline_map(
+                lat, lon, radius, provider, progress=self._on_dl_progress)
 
         def done(summary, error):
             self.dl_btn.disabled = False
+            self._dl = None
             if error is not None:
                 self.flash.text = f"error: {error}"
             else:
                 self.flash.text = (f"saved {summary['saved']}/"
                                    f"{summary['requested']} tiles offline")
-        _run_bg(self.ctl.download_offline_map, lat, lon, radius, provider,
-                on_done=done)
+                self._refresh_offline_list()
+        _run_bg(job, on_done=done)
+
+    def _refresh_offline_list(self):
+        import os
+        self._offline_map = {os.path.basename(p): p
+                             for p in self.ctl.offline_maps()}
+        self.offline.values = list(self._offline_map)
+        if not self._offline_map:
+            self.offline.text = "(no offline maps)"
+
+    def _use_offline(self, *_):
+        if not self._ok:
+            return
+        path = self._offline_map.get(self.offline.text)
+        if not path:
+            return
+        try:
+            from kivy_garden.mapview.mbtsource import MBTilesMapSource
+            self.mapview.map_source = MBTilesMapSource(path)
+            self.flash.text = f"offline: {self.offline.text}"
+        except Exception as exc:
+            self.flash.text = f"offline load failed: {exc}"
+
+    def _delete_offline(self, *_):
+        path = self._offline_map.get(self.offline.text)
+        if path and self.ctl.delete_offline_map(path):
+            self.flash.text = "deleted offline map"
+            self._refresh_offline_list()
 
 
 class RetAlertApp(App):

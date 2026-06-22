@@ -274,6 +274,24 @@ def test_download_offline_map_writes_mbtiles(tmp_path):
     assert len(maps) == 1 and maps[0].endswith(".mbtiles")
 
 
+def test_delete_offline_map(tmp_path):
+    c = _ctl(tmp_path)
+    c.download_offline_map(40.0, -73.0, 5, zooms=[12], fetch=lambda url: b"T")
+    path = c.offline_maps()[0]
+    assert c.delete_offline_map(path) is True
+    assert c.offline_maps() == []
+    assert c.delete_offline_map(path) is False  # already gone
+
+
+def test_delete_offline_map_rejects_outside_path(tmp_path):
+    c = _ctl(tmp_path)
+    outside = tmp_path / "evil.mbtiles"
+    outside.write_text("x")
+    # Not inside the maps dir -> refused, file untouched.
+    assert c.delete_offline_map(str(outside)) is False
+    assert outside.exists()
+
+
 def test_tracks_empty_initially(tmp_path):
     assert _ctl(tmp_path).tracks() == []
 

@@ -195,7 +195,7 @@ removes its own temp artifacts. Options: `--check`, `--tag <tag>`,
 
 ## Tests
 ```sh
-pytest                             # full suite (254 tests)
+pytest                             # full suite (256 tests)
 ```
 
 ## CI / builds

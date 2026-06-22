@@ -243,6 +243,16 @@ class AppController:
         """Paths of downloaded .mbtiles offline maps."""
         return sorted(str(p) for p in self.maps_dir().glob("*.mbtiles"))
 
+    def delete_offline_map(self, path: str) -> bool:
+        """Delete a downloaded offline map. Guarded: only removes a .mbtiles
+        file inside our maps dir."""
+        p = Path(path)
+        if (p.suffix == ".mbtiles" and p.parent == self.maps_dir()
+                and p.is_file()):
+            p.unlink()
+            return True
+        return False
+
     def estimate_offline_tiles(self, lat: float, lon: float,
                                radius_km: float, zooms=None) -> int:
         return estimate_tile_count(lat, lon, radius_km, zooms)
