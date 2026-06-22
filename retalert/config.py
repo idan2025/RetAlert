@@ -29,6 +29,7 @@ class AppConfig:
     identity_file: Path
     contacts_file: Path
     presets_file: Path
+    alerts_file: Path
     lxmf_storage: Path
 
     @classmethod
@@ -42,6 +43,7 @@ class AppConfig:
             identity_file=base / "identity",
             contacts_file=base / "contacts.json",
             presets_file=base / "presets.json",
+            alerts_file=base / "alerts.json",
             lxmf_storage=base / "lxmf",
         )
 

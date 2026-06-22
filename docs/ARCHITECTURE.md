@@ -17,18 +17,19 @@ retalert/
     rns_link.py        stub — raw RNS Link for live media (build step 13)
     share_instance.py  stub — attach to Sideband/Columba/MeshChat/MeshChatX (step 12)
   core/
-    panic_engine.py      stub — trigger dispatch (step 10)
-    preset_resolver.py   stub — trigger->preset (step 10)
-    ack_tracker.py       stub — per-recipient ack state (step 2)
-    retry_queue.py       stub — persistent unsent queue (step 2)
-    geo_tracker.py       stub — GPS one-shot + live-share (step 5)
-    media_channel.py     stub — audio/photo over RNS Link (step 13)
-    transport_intel.py   stub — interface classify/rank/fanout/failover (steps 3-4)
+    alert.py              Alert model + delivery states
+    panic_engine.py       stub — trigger dispatch (step 10)
+    preset_resolver.py    stub — trigger->preset (step 10)
+    ack_tracker.py        per-recipient delivery/ack state (step 2)
+    retry_queue.py        persistent unsent queue, fast retry (step 2)
+    geo_tracker.py        stub — GPS one-shot + live-share (step 5)
+    media_channel.py      stub — audio/photo over RNS Link (step 13)
+    transport_intel.py    stub — interface classify/rank/fanout/failover (steps 3-4)
 ```
 
 ## Build order (from PROMPT.md)
-1. Daemon core + standalone identity + LXMF single-contact text alert (CLI) — **done (this commit)**
-2. Ack tracking + RetryQueue
+1. Daemon core + standalone identity + LXMF single-contact text alert (CLI) — **done**
+2. Ack tracking + RetryQueue — **done**
 3. TransportIntelligence: classify + tier policy + ranking
 4. Hail Mary fan-out + fast failover
 5. GPS one-shot, then live-share (LoRa throttle)

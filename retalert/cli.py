@@ -20,6 +20,7 @@ import RNS
 from . import __version__
 from .config import AppConfig
 from .daemon import EmergencyDaemon
+from .core.alert import Alert, SEVERITIES
 from .storage import Contacts
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from . import updater
@@ -92,53 +93,60 @@ def cmd_send(args) -> int:
     # remote announce to propagate so Identity.recall succeeds.
     daemon.lxmf.announce()
     text = args.text
+    dest = args.dest.lower()
+    dest_hash_bytes = bytes.fromhex(dest.replace(":", ""))
 
-    delivered = {"v": False}
-    failed = {"v": False}
+    alert = Alert(
+        severity=args.severity,
+        text=text,
+        recipients=[dest],
+        retry_interval=args.retry_interval,
+        max_attempts=args.max_attempts,
+    )
 
-    def on_delivered():
-        delivered["v"] = True
+    # Actively request the path so the peer re-announces to us; the retry
+    # flusher will keep trying until the path resolves and delivery confirms.
+    try:
+        RNS.Transport.request_path(dest_hash_bytes)
+    except Exception:
+        pass
 
-    def on_failed():
-        failed["v"] = True
+    daemon.send_alert(alert)
+    print(f"alert {alert.alert_id} sent to {dest}: {text!r}")
 
-    # Wait for the peer's announce to be heard (recall may fail right away).
-    # Actively request the path so the peer re-announces to us.
-    dest_hash_bytes = bytes.fromhex(args.dest.replace(":", ""))
-    deadline_recall = time.monotonic() + args.wait_announce
-    lxm = None
-    requested_path = False
-    while True:
-        try:
-            lxm = daemon.send_message(args.dest, text,
-                                      on_delivered=on_delivered, on_failed=on_failed)
-            break
-        except LookupError:
-            if not requested_path:
-                try:
-                    RNS.Transport.request_path(dest_hash_bytes)
-                except Exception:
-                    pass
-                requested_path = True
-            if time.monotonic() >= deadline_recall:
-                print(f"no path to {args.dest} (no announce heard within "
-                      f"{args.wait_announce}s). is the peer running `serve`?",
-                      file=sys.stderr)
-                return 2
-            time.sleep(1)
-
-    print(f"sent to {args.dest}: {text!r}")
     deadline = time.monotonic() + args.timeout
     while time.monotonic() < deadline:
-        if delivered["v"]:
-            print("DELIVERED")
-            return 0
-        if failed["v"]:
-            print("FAILED", file=sys.stderr)
-            return 3
+        if daemon.ack.is_done(alert.alert_id):
+            break
         time.sleep(0.5)
+
+    summary = daemon.ack.summary(alert.alert_id)
+    for recipient, state in summary.items():
+        print(f"  {recipient}: {state}")
+    states = set(summary.values())
+    if states & {"delivered", "acked", "replied"}:
+        print("DELIVERED")
+        return 0
+    if states == {"failed"}:
+        print("FAILED", file=sys.stderr)
+        return 3
     print("TIMEOUT (no delivery confirmation)", file=sys.stderr)
     return 4
+
+
+def cmd_alerts(args) -> int:
+    config = AppConfig.resolve(args.storage)
+    daemon = EmergencyDaemon(config)
+    if args.alerts_cmd == "list":
+        pending = daemon.retry.pending()
+        if not pending:
+            print("(no pending alerts)")
+            return 0
+        for a in pending:
+            print(f"{a.alert_id}  severity={a.severity}  recipients={a.recipients}")
+            for r, st in daemon.ack.summary(a.alert_id).items():
+                print(f"    {r}: {st}")
+    return 0
 
 
 def cmd_contacts(args) -> int:
@@ -195,10 +203,21 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("send", help="send one LXMF text alert")
     sp.add_argument("dest", help="recipient delivery hash (hex)")
     sp.add_argument("text", help="message text")
+    sp.add_argument("--severity", choices=SEVERITIES, default="help",
+                    help="alert severity (default: help)")
     sp.add_argument("--timeout", type=float, default=30.0, help="delivery wait seconds")
     sp.add_argument("--wait-announce", type=float, default=15.0,
                     help="seconds to wait for peer announce / path")
+    sp.add_argument("--retry-interval", type=float, default=3.0,
+                    help="seconds between retries while unacked (emergency: fast)")
+    sp.add_argument("--max-attempts", type=int, default=0,
+                    help="max send attempts per recipient (0 = unlimited)")
     sp.set_defaults(func=cmd_send)
+
+    ap = sub.add_parser("alerts", help="inspect pending alerts")
+    aps = ap.add_subparsers(dest="alerts_cmd", required=True)
+    al = aps.add_parser("list", help="list pending alerts + per-recipient state")
+    al.set_defaults(func=cmd_alerts)
 
     cp = sub.add_parser("contacts", help="manage contacts")
     cps = cp.add_subparsers(dest="contacts_cmd", required=True)

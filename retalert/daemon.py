@@ -7,12 +7,17 @@ AckTracker, RetryQueue, GeoTracker, MediaChannel, TransportIntelligence
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from typing import Callable, Optional
 
 import RNS
 
 from .config import AppConfig
 from .storage import Contacts, Presets
+from .core.alert import Alert
+from .core.ack_tracker import AckTracker
+from .core.retry_queue import RetryQueue
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from .transport.lxmf_transport import LXMFTransport
 
@@ -33,6 +38,12 @@ class EmergencyDaemon:
         self.lxmf: Optional[LXMFTransport] = None
         self.contacts = Contacts(config.contacts_file)
         self.presets = Presets(config.presets_file)
+
+        self.ack = AckTracker()
+        self.retry = RetryQueue(config.alerts_file, self.ack,
+                                send_fn=self._send_to_recipient)
+        self._retry_thread: Optional[threading.Thread] = None
+        self._running = False
 
         self._incoming_cb: Optional[Callable[[str, str, float], None]] = None
 
@@ -69,11 +80,59 @@ class EmergencyDaemon:
         self.lxmf.start()
         self.lxmf.announce()
         log.info("announced LXMF delivery: %s", self.lxmf.delivery_hash_hex)
+        self._start_retry_flusher()
 
     def stop(self) -> None:
         """Best-effort shutdown."""
-        # RNS has no explicit teardown API; rely on process exit / daemon threads.
+        self._running = False
         log.info("daemon stopping")
+
+    # -- retry flusher --------------------------------------------------
+
+    def _start_retry_flusher(self) -> None:
+        if self._retry_thread and self._retry_thread.is_alive():
+            return
+        self._running = True
+        self._retry_thread = threading.Thread(target=self._flush_loop, daemon=True)
+        self._retry_thread.start()
+
+    def _flush_loop(self) -> None:
+        # Fast retry while alerts are unacked; idle poll otherwise.
+        while self._running:
+            try:
+                self.retry.flush()
+            except Exception as exc:  # never let the flusher die
+                log.warning("retry flush error: %s", exc)
+            time.sleep(1)
+
+    # -- alert send -----------------------------------------------------
+
+    def send_alert(self, alert: Alert) -> Alert:
+        """Enqueue + immediately send an alert to all its recipients.
+
+        RetryQueue persists it and re-sends to unacked recipients on its
+        flush loop until acked/failed.
+        """
+        if self.lxmf is None:
+            raise RuntimeError("daemon not started")
+        self.retry.enqueue(alert)
+        return alert
+
+    def _send_to_recipient(self, alert: Alert, recipient_hex: str) -> None:
+        """Transport callback for RetryQueue: send to one recipient and wire
+        its delivery/failed callbacks back into AckTracker."""
+        if self.lxmf is None:
+            raise RuntimeError("daemon not started")
+
+        def on_delivered():
+            self.ack.on_delivered(alert.alert_id, recipient_hex)
+
+        def on_failed():
+            # LXMF failed callback gives no detail; record generic failure.
+            self.ack.on_failed(alert.alert_id, recipient_hex, "lxmf failed")
+
+        self.lxmf.send_message(recipient_hex, alert.text,
+                               on_delivered=on_delivered, on_failed=on_failed)
 
     # -- convenience ----------------------------------------------------
 
