@@ -348,12 +348,15 @@ class ContactsScreen(Screen):
         root.add_widget(bar)
 
         add = BoxLayout(size_hint_y=0.14, spacing=6)
-        self.name = TextInput(hint_text="name", multiline=False)
-        self.hash = TextInput(hint_text="hex hash", multiline=False)
+        # NB: do NOT name these self.name / self.hash — Screen.name is a Kivy
+        # StringProperty and assigning a Widget to it raises (and crashes the
+        # whole app at build time on both desktop and Android).
+        self.name_in = TextInput(hint_text="name", multiline=False)
+        self.hash_in = TextInput(hint_text="hex hash", multiline=False)
         addb = Button(text="Add", size_hint_x=0.3)
         addb.bind(on_release=self._add)
-        add.add_widget(self.name)
-        add.add_widget(self.hash)
+        add.add_widget(self.name_in)
+        add.add_widget(self.hash_in)
         add.add_widget(addb)
         root.add_widget(add)
 
@@ -369,10 +372,10 @@ class ContactsScreen(Screen):
         self._refresh()
 
     def _add(self, *_):
-        name, h = self.name.text.strip(), self.hash.text.strip().replace(":", "")
+        name, h = self.name_in.text.strip(), self.hash_in.text.strip().replace(":", "")
         if name and h:
             self.ctl.add_contact(h, name)
-            self.name.text = self.hash.text = ""
+            self.name_in.text = self.hash_in.text = ""
             self._refresh()
 
     def _refresh(self):
