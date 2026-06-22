@@ -14,7 +14,7 @@ from typing import Callable, Optional
 import RNS
 
 from .config import AppConfig
-from .storage import Contacts, Presets, Groups
+from .storage import Contacts, Presets, Groups, Settings
 from .core.alert import Alert
 from .core.ack_tracker import AckTracker
 from .core.retry_queue import RetryQueue
@@ -22,6 +22,8 @@ from .core.transport_intel import TransportIntelligence, FAN_OUT_CRITICAL, LOW
 from .core.geo_tracker import GeoTracker, FixSource, Fix
 from .core.announce_engine import AnnounceEngine
 from .core.discover import Discover, AnnounceHandler, ASPECT_LXMF_DELIVERY
+from .core.live_tracks import LiveTrackStore
+from .core.incoming import IncomingDispatcher, encode_alert
 from .transport.identity import load_or_create_identity, identity_hash_hex
 from .transport.lxmf_transport import LXMFTransport
 
@@ -43,6 +45,7 @@ class EmergencyDaemon:
         self.contacts = Contacts(config.contacts_file)
         self.presets = Presets(config.presets_file)
         self.groups = Groups(config.groups_file)
+        self.settings = Settings(config.settings_file)
 
         self.ack = AckTracker()
         self.retry = RetryQueue(config.alerts_file, self.ack,
@@ -50,11 +53,17 @@ class EmergencyDaemon:
         self.ti: Optional[TransportIntelligence] = None
         self.geo: Optional[GeoTracker] = None
         self.discover = Discover(starred_path=config.starred_file)
+        self.tracks = LiveTrackStore()
+        self.incoming = IncomingDispatcher(
+            settings=self.settings, contacts=self.contacts,
+            discover=self.discover, tracks=self.tracks,
+            on_message=self._on_parsed_incoming,
+        )
         self.announce_engine = AnnounceEngine(self._do_announce)
         self._retry_thread: Optional[threading.Thread] = None
         self._running = False
 
-        self._incoming_cb: Optional[Callable[[str, str, float], None]] = None
+        self._incoming_cb: Optional[Callable[[object], None]] = None
 
     # -- setup ----------------------------------------------------------
 
@@ -63,7 +72,9 @@ class EmergencyDaemon:
         self.identity = load_or_create_identity(self.config.identity_file)
         log.info("identity hash: %s", identity_hash_hex(self.identity))
 
-    def set_incoming_callback(self, cb: Callable[[str, str, float], None]) -> None:
+    def set_incoming_callback(self, cb: Callable[[object], None]) -> None:
+        """``cb(IncomingMessage)`` is called for each parsed, filter-passed
+        inbound message."""
         self._incoming_cb = cb
 
     # -- lifecycle ------------------------------------------------------
@@ -85,8 +96,9 @@ class EmergencyDaemon:
             display_name=self.display_name,
         )
         self.lxmf.register()
-        if self._incoming_cb:
-            self.lxmf.set_incoming_callback(self._incoming_cb)
+        # Route all inbound LXMF through the dispatcher (filter + parse),
+        # then forward the parsed message to the user-facing callback.
+        self.lxmf.set_incoming_callback(self._route_incoming)
         self.lxmf.start()
         self.lxmf.announce()
         log.info("announced LXMF delivery: %s", self.lxmf.delivery_hash_hex)
@@ -213,8 +225,25 @@ class EmergencyDaemon:
             # LXMF failed callback gives no detail; record generic failure.
             self.ack.on_failed(alert.alert_id, recipient_hex, "lxmf failed")
 
-        self.lxmf.send_message(recipient_hex, alert.text,
+        # Wrap the body with the RetAlert marker so receivers parse it as an
+        # app-to-app alert (bypass-silent) rather than casual text.
+        body = encode_alert(alert.severity, alert.text)
+        self.lxmf.send_message(recipient_hex, body,
                                on_delivered=on_delivered, on_failed=on_failed)
+
+    # -- incoming -------------------------------------------------------
+
+    def _route_incoming(self, source_hex: str, text: str, timestamp: float) -> None:
+        """LXMF inbound entry point: filter + parse via the dispatcher."""
+        self.incoming.handle(source_hex, text, timestamp)
+
+    def _on_parsed_incoming(self, msg) -> None:
+        """Forward a parsed IncomingMessage to the user-facing callback."""
+        if self._incoming_cb is not None:
+            try:
+                self._incoming_cb(msg)
+            except Exception:
+                log.exception("incoming callback raised")
 
     # -- location -------------------------------------------------------
 

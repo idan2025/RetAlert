@@ -33,6 +33,7 @@ class AppConfig:
     lxmf_storage: Path
     starred_file: Path
     groups_file: Path
+    settings_file: Path
 
     @classmethod
     def resolve(cls, storage_dir: os.PathLike | str | None = None) -> "AppConfig":
@@ -49,6 +50,7 @@ class AppConfig:
             lxmf_storage=base / "lxmf",
             starred_file=base / "starred.json",
             groups_file=base / "groups.json",
+            settings_file=base / "settings.json",
         )
 
     def ensure_dirs(self) -> None:

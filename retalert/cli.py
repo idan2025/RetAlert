@@ -69,17 +69,28 @@ def cmd_identity(args) -> int:
     return 0
 
 
-def _print_incoming(source_hex: str, text: str, timestamp: float) -> None:
-    print(f"\n[incoming] {source_hex}: {text}\nretalert> ", end="", flush=True)
+def _print_incoming(msg) -> None:
+    """Pretty-print a parsed IncomingMessage (serve mode)."""
+    if msg.kind == "alert":
+        sev = f" [{msg.severity}]" if msg.severity else ""
+        loc = f"  @ {msg.fix.geo_uri}" if msg.fix else ""
+        print(f"\n[ALERT{sev}] {msg.source_hash}: {msg.text}{loc}\n"
+              f"  (bypass-silent)\nretalert> ", end="", flush=True)
+    elif msg.kind == "geo":
+        print(f"\n[geo] {msg.source_hash}: {msg.fix.geo_uri} "
+              f"acc={msg.fix.accuracy}\nretalert> ", end="", flush=True)
+    else:
+        print(f"\n[incoming] {msg.source_hash}: {msg.text}\nretalert> ",
+              end="", flush=True)
 
 
 def cmd_serve(args) -> int:
     daemon = _make_daemon(args, start=True)
     daemon.set_incoming_callback(_print_incoming)
-    # Re-register the callback (set before start preferred); ensure applied.
-    daemon.lxmf.set_incoming_callback(_print_incoming)
     print(f"identity:  {identity_hash_hex(daemon.identity)}")
     print(f"delivery:  {daemon.delivery_hash_hex}")
+    print(f"filter:    receive-only-from-contacts="
+          f"{daemon.settings.receive_only_from_contacts}")
     print("listening for LXMF messages. Ctrl-C to quit.\nretalert> ", end="", flush=True)
     # Re-announce periodically so peers that connect later still hear us.
     last_announce = time.monotonic()
@@ -400,6 +411,65 @@ def cmd_discover(args) -> int:
     return 1
 
 
+def cmd_settings(args) -> int:
+    """Receive-side filter: receive-only-from-contacts + allow/deny."""
+    config = AppConfig.resolve(args.storage)
+    from .storage import Settings
+    s = Settings(config.settings_file)
+    cmd = args.settings_cmd
+    if cmd == "show":
+        print(f"receive-only-from-contacts: {s.receive_only_from_contacts}")
+        print(f"allowlist: {sorted(s.allowlist) or '(none)'}")
+        print(f"denylist:  {sorted(s.denylist) or '(none)'}")
+        return 0
+    if cmd == "receive-only":
+        enabled = not args.off
+        s.set_receive_only_from_contacts(enabled)
+        print(f"receive-only-from-contacts: {enabled}")
+        return 0
+    if cmd == "allow":
+        s.allow(args.hash)
+        print(f"allowed {args.hash}")
+        return 0
+    if cmd == "deny":
+        s.deny(args.hash)
+        print(f"denied {args.hash}")
+        return 0
+    if cmd == "forget":
+        s.forget(args.hash)
+        print(f"forgot {args.hash}")
+        return 0
+    return 1
+
+
+def cmd_tracks(args) -> int:
+    """Inspect live-sharing peers (Map screen backend)."""
+    daemon = _make_daemon(args, start=True)
+    if args.tracks_cmd == "list":
+        tracks = daemon.tracks.list()
+        if not tracks:
+            print("(no live tracks)")
+            return 0
+        for t in tracks:
+            flag = " (following)" if daemon.tracks.followed == t.source_hash else ""
+            print(f"{t.source_hash}  {t.display_name or '?'}  "
+                  f"{t.fix.geo_uri}  acc={t.fix.accuracy}{flag}")
+        return 0
+    if args.tracks_cmd == "clear":
+        n = daemon.tracks.clear()
+        print(f"cleared {n} live track(s)")
+        return 0
+    if args.tracks_cmd == "follow":
+        ok = daemon.tracks.follow(args.hash)
+        print("following" if ok else "not sharing (no live track)", args.hash)
+        return 0
+    if args.tracks_cmd == "unfollow":
+        daemon.tracks.unfollow()
+        print("unfollowed")
+        return 0
+    return 1
+
+
 def cmd_update(args) -> int:
     if args.check:
         rel = updater.check()
@@ -536,6 +606,33 @@ def build_parser() -> argparse.ArgumentParser:
     du = dps.add_parser("unstar", help="unstar a discovered peer")
     du.add_argument("hash", help="destination hash (hex)")
     du.set_defaults(func=cmd_discover)
+
+    # settings: receive-side filter (step 9).
+    sp = sub.add_parser("settings", help="receive-side filter + allow/deny")
+    sps = sp.add_subparsers(dest="settings_cmd", required=True)
+    sps.add_parser("show", help="show current filter settings").set_defaults(func=cmd_settings)
+    sro = sps.add_parser("receive-only", help="toggle 'receive only from contacts'")
+    sro.add_argument("--off", action="store_true", help="disable (accept any sender)")
+    sro.set_defaults(func=cmd_settings)
+    sa = sps.add_parser("allow", help="always allow a sender")
+    sa.add_argument("hash", help="destination hash (hex)")
+    sa.set_defaults(func=cmd_settings)
+    sd = sps.add_parser("deny", help="always deny a sender")
+    sd.add_argument("hash", help="destination hash (hex)")
+    sd.set_defaults(func=cmd_settings)
+    sf = sps.add_parser("forget", help="remove a sender from allow/deny")
+    sf.add_argument("hash", help="destination hash (hex)")
+    sf.set_defaults(func=cmd_settings)
+
+    # tracks: live-sharing peers (map backend, step 8).
+    tp = sub.add_parser("tracks", help="live-sharing peers (map backend)")
+    tps = tp.add_subparsers(dest="tracks_cmd", required=True)
+    tps.add_parser("list", help="list live tracks").set_defaults(func=cmd_tracks)
+    tps.add_parser("clear", help="clear live tracks").set_defaults(func=cmd_tracks)
+    tf = tps.add_parser("follow", help="follow a live-sharing peer")
+    tf.add_argument("hash", help="destination hash (hex)")
+    tf.set_defaults(func=cmd_tracks)
+    tps.add_parser("unfollow", help="stop following").set_defaults(func=cmd_tracks)
 
     sp = sub.add_parser("update", help="self-update from GitHub releases")
     sp.add_argument("--check", action="store_true", help="only check, do not install")

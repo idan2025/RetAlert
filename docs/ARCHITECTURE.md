@@ -25,6 +25,8 @@ retalert/
     geo_tracker.py        GPS one-shot + live-share thread + LoRa throttle (step 5)
     announce_engine.py    manual + auto-announce loop, 30min-12h interval (step 6)
     discover.py           heard-announce cache + starred set, RNS handler (step 6)
+    live_tracks.py        incoming live-share store + tap-to-follow (step 8)
+    incoming.py           receive filter + geo/alert parse + bypass-silent hook (steps 8-9)
     media_channel.py      stub — audio/photo over RNS Link (step 13)
     transport_intel.py    interface classify/rank/fanout/failover (steps 3-4)
 ```
@@ -38,8 +40,8 @@ retalert/
 5. GPS one-shot, then live-share (LoRa throttle) — **done**
 6. Contacts + discover/network screen — **done** (backend: AnnounceEngine + Discover; CLI: announce/auto, discover list/clear/star/unstar)
 7. Ad-hoc group assembly from contacts — **done** (Groups store + CLI group create/list/show/remove/add-member/remove-member; send --to-group fans out per-member)
-8. Map screen: live tracking + offline tiles
-9. Incoming bypass-silent/DND + receive-from-contacts toggle
+8. Map screen: live tracking + offline tiles — backend done (LiveTrackStore + geo parse); UI deferred (Kivy)
+9. Incoming bypass-silent/DND + receive-from-contacts toggle — **done** (IncomingDispatcher + Settings; bypass-silent hook stub)
 10. Preset system + on-screen panic button (Kivy)
 11. Dynamic hardware-key capture
 12. Shared-instance attach (Sideband/Columba/MeshChat/MeshChatX)

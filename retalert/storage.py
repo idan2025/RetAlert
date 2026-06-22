@@ -66,6 +66,62 @@ class Contacts:
         return Contact(hash_hex, name) if name is not None else None
 
 
+class Settings:
+    """User receive-side settings: "receive only from contacts" toggle +
+    per-sender allow/deny lists (PROMPT.md § Incoming alerts).
+
+    Persisted to JSON. Allowlist takes precedence over denylist; both take
+    precedence over the receive-only-from-contacts toggle.
+    """
+
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self.receive_only_from_contacts: bool = True
+        self.allowlist: set[str] = set()
+        self.denylist: set[str] = set()
+        self._load()
+
+    def _load(self) -> None:
+        if not self.path.exists():
+            return
+        try:
+            data = json.loads(self.path.read_text("utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+        self.receive_only_from_contacts = bool(data.get("receive_only_from_contacts", True))
+        self.allowlist = {h.lower().strip() for h in data.get("allowlist", [])}
+        self.denylist = {h.lower().strip() for h in data.get("denylist", [])}
+
+    def _save(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "receive_only_from_contacts": self.receive_only_from_contacts,
+            "allowlist": sorted(self.allowlist),
+            "denylist": sorted(self.denylist),
+        }
+        self.path.write_text(json.dumps(payload, indent=2), "utf-8")
+
+    def set_receive_only_from_contacts(self, enabled: bool) -> None:
+        self.receive_only_from_contacts = bool(enabled)
+        self._save()
+
+    def allow(self, hash_hex: str) -> None:
+        self.allowlist.add(hash_hex.lower().strip())
+        self.denylist.discard(hash_hex.lower().strip())
+        self._save()
+
+    def deny(self, hash_hex: str) -> None:
+        self.denylist.add(hash_hex.lower().strip())
+        self.allowlist.discard(hash_hex.lower().strip())
+        self._save()
+
+    def forget(self, hash_hex: str) -> None:
+        h = hash_hex.lower().strip()
+        self.allowlist.discard(h)
+        self.denylist.discard(h)
+        self._save()
+
+
 class Presets:
     """Stub preset store. Schema finalised in build step 10."""
 
