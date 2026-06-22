@@ -72,16 +72,26 @@ def cmd_identity(args) -> int:
 
 def _print_incoming(msg) -> None:
     """Pretty-print a parsed IncomingMessage (serve mode)."""
+    prompt = "\nretalert> "
     if msg.kind == "alert":
         sev = f" [{msg.severity}]" if msg.severity else ""
         loc = f"  @ {msg.fix.geo_uri}" if msg.fix else ""
+        # Surface the alert_id so the operator can reply to it by id.
+        hint = (f"\n  reply: retalert reply {msg.alert_id} <text>"
+                if msg.alert_id else "")
         print(f"\n[ALERT{sev}] {msg.source_hash}: {msg.text}{loc}\n"
-              f"  (bypass-silent)\nretalert> ", end="", flush=True)
+              f"  (bypass-silent){hint}{prompt}", end="", flush=True)
     elif msg.kind == "geo":
         print(f"\n[geo] {msg.source_hash}: {msg.fix.geo_uri} "
-              f"acc={msg.fix.accuracy}\nretalert> ", end="", flush=True)
+              f"acc={msg.fix.accuracy}{prompt}", end="", flush=True)
+    elif msg.kind == "ack":
+        print(f"\n[ack] {msg.source_hash} acked alert {msg.alert_id}{prompt}",
+              end="", flush=True)
+    elif msg.kind == "reply":
+        print(f"\n[reply] {msg.source_hash} -> alert {msg.alert_id}: "
+              f"{msg.text}{prompt}", end="", flush=True)
     else:
-        print(f"\n[incoming] {msg.source_hash}: {msg.text}\nretalert> ",
+        print(f"\n[incoming] {msg.source_hash}: {msg.text}{prompt}",
               end="", flush=True)
 
 

@@ -225,6 +225,32 @@ def test_ack_alert_known_sends_ack(tmp_path):
     assert daemon.lxmf.sent == [("aa" * 16, encode_ack("aid1"))]
 
 
+def test_print_incoming_alert_shows_reply_hint(capsys):
+    from retalert.cli import _print_incoming
+    _print_incoming(_alert_msg(alert_id="aid9", text="help"))
+    out = capsys.readouterr().out
+    assert "[ALERT" in out and "aid9" in out
+    assert "retalert reply aid9" in out  # operator can discover the id
+
+
+def test_print_incoming_ack(capsys):
+    from retalert.cli import _print_incoming
+    msg = IncomingMessage(source_hash="aa" * 16, text="", timestamp=0.0,
+                          kind="ack", alert_id="aid9")
+    _print_incoming(msg)
+    out = capsys.readouterr().out
+    assert "[ack]" in out and "aid9" in out
+
+
+def test_print_incoming_reply(capsys):
+    from retalert.cli import _print_incoming
+    msg = IncomingMessage(source_hash="aa" * 16, text="omw", timestamp=0.0,
+                          kind="reply", alert_id="aid9")
+    _print_incoming(msg)
+    out = capsys.readouterr().out
+    assert "[reply]" in out and "aid9" in out and "omw" in out
+
+
 def test_cli_inbox_prune(tmp_path, capsys):
     """`retalert inbox prune` drops stale entries and reports the count."""
     from retalert.cli import main
