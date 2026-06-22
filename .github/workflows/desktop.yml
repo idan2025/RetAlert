@@ -41,13 +41,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      # SDL/GL system libs Kivy needs at build + run time.
+      # SDL/GL system libs Kivy needs + xvfb: PyInstaller's Kivy hook imports
+      # kivy.core.window during analysis, which needs a display, so the build
+      # runs under a virtual framebuffer.
       - name: System deps
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libsdl2-2.0-0 libsdl2-image-2.0-0 libsdl2-mixer-2.0-0 \
-            libsdl2-ttf-2.0-0 libmtdev1
+            libsdl2-ttf-2.0-0 libmtdev1 libgl1 xvfb
       - name: Install app + PyInstaller
         # `[ui]` extra (Kivy + platform UI deps) is added alongside main.py.
         run: |
@@ -55,7 +57,10 @@ jobs:
           pip install -e ".[ui]"
           pip install pyinstaller
       - name: Build Linux binary
-        run: pyinstaller --onefile --name retalert-desktop main.py
+        # Mock GL backend dodges real GPU/GL; xvfb supplies the window display.
+        env:
+          KIVY_GL_BACKEND: mock
+        run: xvfb-run -a pyinstaller --onefile --name retalert-desktop main.py
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
