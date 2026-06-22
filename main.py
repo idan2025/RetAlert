@@ -59,14 +59,12 @@ class HomeScreen(Screen):
         root.add_widget(self.flash)
 
         nav = BoxLayout(size_hint_y=0.16, spacing=8)
-        to_inbox = Button(text="Inbox / replies")
-        to_inbox.bind(on_release=lambda *_: setattr(self.manager, "current",
-                                                    "inbox"))
-        to_send = Button(text="Send alert")
-        to_send.bind(on_release=lambda *_: setattr(self.manager, "current",
-                                                   "send"))
-        nav.add_widget(to_send)
-        nav.add_widget(to_inbox)
+        for label, screen in (("Send", "send"), ("Inbox", "inbox"),
+                              ("Sent", "outbox")):
+            b = Button(text=label)
+            b.bind(on_release=lambda _w, s=screen: setattr(self.manager,
+                                                           "current", s))
+            nav.add_widget(b)
         root.add_widget(nav)
 
         self.add_widget(root)
@@ -222,6 +220,53 @@ class SendScreen(Screen):
                 on_done=done)
 
 
+class OutboxScreen(Screen):
+    """Alerts we have sent, with per-recipient ack/reply state."""
+
+    def __init__(self, ctl: AppController, **kw):
+        super().__init__(**kw)
+        self.ctl = ctl
+        root = BoxLayout(orientation="vertical", padding=10, spacing=8)
+
+        bar = BoxLayout(size_hint_y=0.12, spacing=8)
+        back = Button(text="< Home")
+        back.bind(on_release=lambda *_: setattr(self.manager, "current", "home"))
+        bar.add_widget(back)
+        root.add_widget(bar)
+
+        scroll = ScrollView()
+        self.list_box = BoxLayout(orientation="vertical", size_hint_y=None,
+                                  spacing=6, padding=2)
+        self.list_box.bind(minimum_height=self.list_box.setter("height"))
+        scroll.add_widget(self.list_box)
+        root.add_widget(scroll)
+        self.add_widget(root)
+
+    def on_pre_enter(self, *_):
+        self._refresh()
+        self._ev = Clock.schedule_interval(lambda _dt: self._refresh(), 3)
+
+    def on_pre_leave(self, *_):
+        ev = getattr(self, "_ev", None)
+        if ev is not None:
+            ev.cancel()
+
+    def _refresh(self):
+        self.list_box.clear_widgets()
+        alerts = self.ctl.sent_alerts()
+        if not alerts:
+            self.list_box.add_widget(Label(text="(nothing sent yet)",
+                                           size_hint_y=None, height=40))
+            return
+        for a in alerts:
+            summary = self.ctl.ack_summary(a.alert_id)
+            states = "  ".join(f"{h[:6]}…={s}" for h, s in summary.items()) \
+                or "(no recipients)"
+            txt = f"[{a.severity}] {a.alert_id}\n{(a.text or '')[:80]}\n{states}"
+            self.list_box.add_widget(Label(text=txt, size_hint_y=None,
+                                           height=84, halign="left"))
+
+
 class RetAlertApp(App):
     def build(self):
         self.title = "RetAlert"
@@ -230,6 +275,7 @@ class RetAlertApp(App):
         sm.add_widget(HomeScreen(self.ctl, name="home"))
         sm.add_widget(InboxScreen(self.ctl, name="inbox"))
         sm.add_widget(SendScreen(self.ctl, name="send"))
+        sm.add_widget(OutboxScreen(self.ctl, name="outbox"))
         # Bring the daemon up off the UI thread so the window paints immediately.
         _run_bg(self.ctl.start)
         return sm

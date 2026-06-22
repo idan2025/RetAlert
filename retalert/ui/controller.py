@@ -28,6 +28,7 @@ class AppController:
         self.daemon = EmergencyDaemon(self.config, display_name=display_name)
         self._feed: Deque[dict] = deque(maxlen=max_feed)
         self._feed_lock = threading.Lock()
+        self._sent: Dict[str, Alert] = {}  # alert_id -> our outbound Alert
         self._started = False
         self.daemon.set_incoming_callback(self._on_incoming)
 
@@ -75,13 +76,25 @@ class AppController:
 
     def panic(self, trigger: str = "default") -> Optional[Alert]:
         """Fire a preset by name/trigger -> dispatched Alert (or None)."""
-        return self.daemon.panic.fire(trigger)
+        alert = self.daemon.panic.fire(trigger)
+        self._record_sent(alert)
+        return alert
 
     def send_alert(self, text: str, recipients, severity: str = "help",
                    **kw) -> Alert:
         alert = Alert(severity=severity, text=text,
                       recipients=list(recipients), **kw)
-        return self.daemon.send_alert(alert)
+        sent = self.daemon.send_alert(alert)
+        self._record_sent(sent)
+        return sent
+
+    def _record_sent(self, alert: Optional[Alert]) -> None:
+        if alert is not None and getattr(alert, "alert_id", ""):
+            self._sent[alert.alert_id] = alert
+
+    def sent_alerts(self) -> List[Alert]:
+        """Our outbound alerts (newest first) for an outbox / ack view."""
+        return list(reversed(list(self._sent.values())))
 
     def resolve_recipients(self, token: str) -> List[str]:
         """Resolve a token to destination hashes. Accepts a 32-hex-char hash

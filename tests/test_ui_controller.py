@@ -127,6 +127,33 @@ def test_send_text_unknown_target_raises(tmp_path):
         c.send_text("help", "nobody")
 
 
+def test_send_alert_records_outbox(tmp_path, monkeypatch):
+    c = _ctl(tmp_path)
+    # Stub the network send so we exercise only the outbox bookkeeping.
+    monkeypatch.setattr(c.daemon, "send_alert", lambda alert: alert)
+    a = c.send_alert("hi", ["aa" * 16], severity="danger", alert_id="x1")
+    assert a.alert_id == "x1"
+    assert [al.alert_id for al in c.sent_alerts()] == ["x1"]
+
+
+def test_panic_records_outbox(tmp_path, monkeypatch):
+    from retalert.core.alert import Alert
+    c = _ctl(tmp_path)
+    fake = Alert(severity="danger", text="x", recipients=["aa" * 16],
+                 alert_id="p1")
+    monkeypatch.setattr(c.daemon.panic, "fire", lambda trigger="default": fake)
+    assert c.panic().alert_id == "p1"
+    assert "p1" in [a.alert_id for a in c.sent_alerts()]
+
+
+def test_sent_alerts_newest_first(tmp_path, monkeypatch):
+    c = _ctl(tmp_path)
+    monkeypatch.setattr(c.daemon, "send_alert", lambda alert: alert)
+    c.send_alert("a", ["aa" * 16], alert_id="1")
+    c.send_alert("b", ["aa" * 16], alert_id="2")
+    assert [a.alert_id for a in c.sent_alerts()] == ["2", "1"]
+
+
 def test_start_is_idempotent_flag(tmp_path):
     c = _ctl(tmp_path)
     # Simulate started without bringing up RNS.
