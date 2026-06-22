@@ -34,3 +34,21 @@ bin/
 
 # Maps / offline tile caches (later)
 tiles_cache/
+
+# --- Defense-in-depth: NEVER commit per-instance secrets/data (public repo) ---
+# Storage dirs are normally stora/ storb/ storage/ (above), but also guard the
+# generated artifact names directly, in case an instance is created in-repo
+# under a non-standard name (e.g. `retalert --storage ./mytest`). The `identity`
+# blob and the rns/ store hold PRIVATE KEYS.
+identity
+rns/
+lxmf/
+keys.json
+inbox.json
+contacts.json
+presets.json
+groups.json
+settings.json
+alerts.json
+starred.json
+shared_instance.json
