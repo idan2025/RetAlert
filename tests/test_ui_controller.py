@@ -89,6 +89,17 @@ def test_presets_view(tmp_path):
     assert "sos" in names
 
 
+def test_preset_summaries(tmp_path):
+    c = _ctl(tmp_path)
+    assert c.preset_summaries() == []
+    c.daemon.preset_store.put(Preset(name="sos", severity="danger",
+                                     recipients=["aa" * 16, "bb" * 16],
+                                     fan_out="all"))
+    rows = c.preset_summaries()
+    assert rows == [{"name": "sos", "severity": "danger", "fan_out": "all",
+                     "recipients": 2}]
+
+
 def test_panic_with_no_preset_returns_none(tmp_path):
     # No preset configured -> fire resolves nothing and returns None without
     # touching the network.

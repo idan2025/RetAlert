@@ -136,6 +136,13 @@ class AppController:
     def presets(self):
         return self.daemon.preset_store.list()
 
+    def preset_summaries(self) -> List[dict]:
+        """Flat preset rows for a UI list: name, severity, fan-out, and how
+        many recipients are configured."""
+        return [{"name": p.name, "severity": p.severity, "fan_out": p.fan_out,
+                 "recipients": len(p.recipients)}
+                for p in self.daemon.preset_store.list()]
+
     def inbox(self):
         return self.daemon.inbox.list()
 

@@ -60,7 +60,7 @@ class HomeScreen(Screen):
 
         nav = BoxLayout(size_hint_y=0.16, spacing=8)
         for label, screen in (("Send", "send"), ("Inbox", "inbox"),
-                              ("Sent", "outbox")):
+                              ("Sent", "outbox"), ("Presets", "presets")):
             b = Button(text=label)
             b.bind(on_release=lambda _w, s=screen: setattr(self.manager,
                                                            "current", s))
@@ -267,6 +267,71 @@ class OutboxScreen(Screen):
                                            height=84, halign="left"))
 
 
+class PresetsScreen(Screen):
+    """Saved presets with one-tap fire (trigger -> alert dispatch)."""
+
+    def __init__(self, ctl: AppController, **kw):
+        super().__init__(**kw)
+        self.ctl = ctl
+        root = BoxLayout(orientation="vertical", padding=10, spacing=8)
+
+        bar = BoxLayout(size_hint_y=0.12, spacing=8)
+        back = Button(text="< Home")
+        back.bind(on_release=lambda *_: setattr(self.manager, "current", "home"))
+        refresh = Button(text="Refresh")
+        refresh.bind(on_release=lambda *_: self._refresh())
+        bar.add_widget(back)
+        bar.add_widget(refresh)
+        root.add_widget(bar)
+
+        scroll = ScrollView()
+        self.list_box = BoxLayout(orientation="vertical", size_hint_y=None,
+                                  spacing=6, padding=2)
+        self.list_box.bind(minimum_height=self.list_box.setter("height"))
+        scroll.add_widget(self.list_box)
+        root.add_widget(scroll)
+
+        self.flash = Label(text="", size_hint_y=0.1)
+        root.add_widget(self.flash)
+        self.add_widget(root)
+
+    def on_pre_enter(self, *_):
+        self._refresh()
+
+    def _refresh(self):
+        self.list_box.clear_widgets()
+        rows = self.ctl.preset_summaries()
+        if not rows:
+            self.list_box.add_widget(Label(text="(no presets configured)",
+                                           size_hint_y=None, height=40))
+            return
+        for r in rows:
+            self.list_box.add_widget(self._row(r))
+
+    def _row(self, r):
+        box = BoxLayout(size_hint_y=None, height=56, spacing=6)
+        info = Label(text=f"{r['name']}  [{r['severity']}]\n"
+                          f"fan-out={r['fan_out']}  to {r['recipients']}")
+        fire = Button(text="Fire", size_hint_x=0.3,
+                      background_color=(0.8, 0.2, 0.2, 1))
+        fire.bind(on_release=lambda *_: self._fire(r["name"]))
+        box.add_widget(info)
+        box.add_widget(fire)
+        return box
+
+    def _fire(self, name):
+        self.flash.text = f"firing {name}…"
+
+        def done(alert, error):
+            if error is not None:
+                self.flash.text = f"error: {error}"
+            elif alert is None:
+                self.flash.text = f"{name}: nothing dispatched"
+            else:
+                self.flash.text = f"{name}: sent {alert.alert_id or '(v0)'}"
+        _run_bg(self.ctl.panic, name, on_done=done)
+
+
 class RetAlertApp(App):
     def build(self):
         self.title = "RetAlert"
@@ -276,6 +341,7 @@ class RetAlertApp(App):
         sm.add_widget(InboxScreen(self.ctl, name="inbox"))
         sm.add_widget(SendScreen(self.ctl, name="send"))
         sm.add_widget(OutboxScreen(self.ctl, name="outbox"))
+        sm.add_widget(PresetsScreen(self.ctl, name="presets"))
         # Bring the daemon up off the UI thread so the window paints immediately.
         _run_bg(self.ctl.start)
         return sm
