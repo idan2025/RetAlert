@@ -149,8 +149,9 @@ App-to-app alerts (wire marker `!RETALERT!`) trigger the bypass-silent
 hook on the receiver so a real emergency alarms at full volume on a
 muted phone (platform callback; stub on desktop). The v1 wire format
 `!RETALERT!id:<alert_id>!<sev>!<text>` carries an `alert_id` so the
-receiver acks it back (`!RETALERT!ack!<alert_id>`); the sender's
-AckTracker moves that recipient `DELIVERED → ACKED`.
+receiver acks it back (`!RETALERT!ack!<alert_id>`) or replies
+(`!RETALERT!reply!<alert_id>!<text>`); the sender's AckTracker moves
+that recipient `DELIVERED → ACKED` (or `→ REPLIED` with the reply text).
 
 ## Shared instance
 Attach to a host app's RNS instance instead of running your own `rnsd`:
@@ -172,7 +173,7 @@ removes its own temp artifacts. Options: `--check`, `--tag <tag>`,
 
 ## Tests
 ```sh
-pytest                             # full suite (163 tests)
+pytest                             # full suite (169 tests)
 ```
 
 ## License

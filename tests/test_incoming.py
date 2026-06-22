@@ -6,6 +6,7 @@ import pytest
 from retalert.core.incoming import (
     IncomingDispatcher, IncomingMessage,
     encode_alert, decode_alert, encode_ack, decode_ack,
+    encode_reply, decode_reply,
     parse_geo_body, RETALERT_MARKER,
 )
 from retalert.core.live_tracks import LiveTrackStore, LiveTrack
@@ -47,6 +48,28 @@ def test_decode_ack_returns_none_for_non_ack():
     assert decode_ack("just a message") is None
     assert decode_ack(encode_alert("danger", "help")) is None  # alert, not ack
     assert decode_ack("") is None
+
+
+def test_encode_decode_reply_roundtrip():
+    body = encode_reply("aid1", "on my way")
+    assert body == f"{RETALERT_MARKER}reply!aid1!on my way"
+    rid, text = decode_reply(body)
+    assert rid == "aid1"
+    assert text == "on my way"
+
+
+def test_encode_decode_reply_empty_text():
+    body = encode_reply("aid1")
+    rid, text = decode_reply(body)
+    assert rid == "aid1"
+    assert text == ""
+
+
+def test_decode_reply_returns_none_for_non_reply():
+    assert decode_reply("just a message") is None
+    assert decode_reply(encode_ack("aid1")) is None  # ack, not reply
+    assert decode_reply(encode_alert("danger", "help")) is None
+    assert decode_reply("") is None
 
 
 def test_parse_geo_body_basic():
@@ -374,3 +397,49 @@ def test_app_ack_roundtrip_end_to_end(tmp_path):
                                ack_cb=ack.on_ack)
     sender.handle("aa" * 16, encode_ack("aid1"), 0.0)
     assert ack.state("aid1", "aa" * 16) == ACKED
+
+
+def test_dispatcher_inbound_reply_calls_reply_cb(tmp_path):
+    contacts = Contacts(tmp_path / "c.json")
+    contacts.add("aa" * 16, "Alice")
+    replied = []
+    d = IncomingDispatcher(settings=Settings(tmp_path / "s.json"),
+                          contacts=contacts,
+                          reply_cb=lambda aid, src, txt: replied.append((aid, src, txt)))
+    msg = d.handle("aa" * 16, encode_reply("aid1", "on my way"), 0.0)
+    assert msg.kind == "reply"
+    assert msg.alert_id == "aid1"
+    assert msg.text == "on my way"
+    assert replied == [("aid1", "aa" * 16, "on my way")]
+
+
+def test_dispatcher_reply_does_not_fire_bypass_silent(tmp_path):
+    contacts = Contacts(tmp_path / "c.json")
+    contacts.add("aa" * 16, "Alice")
+    fired = []
+    d = IncomingDispatcher(settings=Settings(tmp_path / "s.json"),
+                          contacts=contacts,
+                          reply_cb=lambda aid, src, txt: None)
+    d.bypass_silent_cb = fired.append
+    d.handle("aa" * 16, encode_reply("aid1", "ok"), 0.0)
+    assert fired == []
+
+
+def test_app_reply_roundtrip_end_to_end(tmp_path):
+    """Recipient replies to an alert -> sender AckTracker -> REPLIED."""
+    from retalert.core.ack_tracker import AckTracker
+    from retalert.core.alert import Alert, REPLIED
+
+    contacts = Contacts(tmp_path / "c.json")
+    contacts.add("aa" * 16, "Alice")
+    ack = AckTracker()
+    alert = Alert(severity="danger", text="help", recipients=["aa" * 16],
+                  alert_id="aid1")
+    ack.track(alert)
+
+    sender = IncomingDispatcher(settings=Settings(tmp_path / "ss.json"),
+                               contacts=contacts,
+                               reply_cb=ack.on_ack)
+    sender.handle("aa" * 16, encode_reply("aid1", "on my way"), 0.0)
+    assert ack.state("aid1", "aa" * 16) == REPLIED
+    assert ack.summary("aid1")["aa" * 16] == REPLIED

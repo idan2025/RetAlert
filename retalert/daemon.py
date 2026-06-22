@@ -23,7 +23,7 @@ from .core.geo_tracker import GeoTracker, FixSource, Fix
 from .core.announce_engine import AnnounceEngine
 from .core.discover import Discover, AnnounceHandler, ASPECT_LXMF_DELIVERY
 from .core.live_tracks import LiveTrackStore
-from .core.incoming import IncomingDispatcher, encode_alert, encode_ack
+from .core.incoming import IncomingDispatcher, encode_alert, encode_ack, encode_reply
 from .core.preset import Preset, PresetStore
 from .core.panic_engine import PanicEngine, PresetResolver
 from .core.hardware_keys import HardwareKeyManager, KeyCaptureBackend
@@ -75,6 +75,7 @@ class EmergencyDaemon:
             on_message=self._on_parsed_incoming,
             send_ack_fn=self._send_ack,
             ack_cb=self._on_inbound_ack,
+            reply_cb=self._on_inbound_reply,
         )
         self.announce_engine = AnnounceEngine(self._do_announce)
         self._retry_thread: Optional[threading.Thread] = None
@@ -272,9 +273,20 @@ class EmergencyDaemon:
             return
         self.lxmf.send_message(source_hex, encode_ack(alert_id))
 
+    def send_reply(self, alert_id: str, source_hex: str, reply: str) -> None:
+        """Receiver side: reply (ack + text) to an inbound app-to-app alert."""
+        if self.lxmf is None:
+            raise RuntimeError("daemon not started")
+        self.lxmf.send_message(source_hex, encode_reply(alert_id, reply))
+
     def _on_inbound_ack(self, alert_id: str, source_hex: str) -> None:
         """Sender side: a recipient acked our alert -> ACKED."""
         self.ack.on_ack(alert_id, source_hex)
+
+    def _on_inbound_reply(self, alert_id: str, source_hex: str,
+                          reply: str) -> None:
+        """Sender side: a recipient replied to our alert -> REPLIED."""
+        self.ack.on_ack(alert_id, source_hex, reply=reply)
 
     # -- location -------------------------------------------------------
 

@@ -27,6 +27,8 @@ first segment is the severity) even when the text body itself contains
 
 App-level ack (receiver -> sender, build step 9):
     !RETALERT!ack!<alert_id>
+App-level reply (receiver -> sender, with optional text):
+    !RETALERT!reply!<alert_id>!<text>
 """
 from __future__ import annotations
 
@@ -46,6 +48,8 @@ RETALERT_MARKER = "!RETALERT!"
 _ALERT_ID_PREFIX = "id:"
 # Ack sub-marker: !RETALERT!ack!<alert_id>
 _ACK_SEG = "ack"
+# Reply sub-marker: !RETALERT!reply!<alert_id>!<text>
+_REPLY_SEG = "reply"
 
 _GEO_RE = re.compile(r"geo:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)")
 
@@ -96,6 +100,25 @@ def decode_ack(body: str) -> Optional[str]:
     if seg != _ACK_SEG or not alert_id:
         return None
     return alert_id
+
+
+def encode_reply(alert_id: str, text: str = "") -> str:
+    """Wire an app-level reply (ack + optional text) back to the sender."""
+    return f"{RETALERT_MARKER}{_REPLY_SEG}!{alert_id}!{text}"
+
+
+def decode_reply(body: str):
+    """If ``body`` is a reply, return ``(alert_id, text)``; else ``None``."""
+    if not body.startswith(RETALERT_MARKER):
+        return None
+    rest = body[len(RETALERT_MARKER):]
+    seg, _, tail = rest.partition("!")
+    if seg != _REPLY_SEG:
+        return None
+    alert_id, _, text = tail.partition("!")
+    if not alert_id:
+        return None
+    return alert_id, text
 
 
 def parse_geo_body(body: str) -> Optional[Fix]:
@@ -158,7 +181,8 @@ class IncomingDispatcher:
                  tracks: Optional[LiveTrackStore] = None,
                  on_message: Optional[Callable[[IncomingMessage], None]] = None,
                  send_ack_fn: Optional[Callable[[str, str], None]] = None,
-                 ack_cb: Optional[Callable[[str, str], None]] = None):
+                 ack_cb: Optional[Callable[[str, str], None]] = None,
+                 reply_cb: Optional[Callable[[str, str, str], None]] = None):
         self.settings = settings
         self.contacts = contacts
         self.discover = discover
@@ -167,11 +191,13 @@ class IncomingDispatcher:
         # Platform hook: called with the IncomingMessage for app-to-app
         # alerts so the receiver can bypass silent/DND. Stub logs only.
         self.bypass_silent_cb: Optional[Callable[[IncomingMessage], None]] = None
-        # App-level ack (step 9):
-        #   send_ack_fn(alert_id, source_hex) -> sends an ack back to sender
-        #   ack_cb(alert_id, source_hex)      -> AckTracker.on_ack on the sender
+        # App-level ack/reply (step 9):
+        #   send_ack_fn(alert_id, source_hex)        -> ack back to sender
+        #   ack_cb(alert_id, source_hex)             -> AckTracker.on_ack (ACKED)
+        #   reply_cb(alert_id, source_hex, reply)    -> AckTracker.on_ack (REPLIED)
         self.send_ack_fn = send_ack_fn
         self.ack_cb = ack_cb
+        self.reply_cb = reply_cb
 
     # -- filter ---------------------------------------------------------
 
@@ -197,13 +223,19 @@ class IncomingDispatcher:
 
         msg = self._parse(src, text, timestamp)
 
-        # App-level ack: hand to the tracker; no geo/bypass-silent side effects.
+        # App-level ack/reply: hand to the tracker; no geo/bypass-silent.
         if msg.kind == "ack":
             if self.ack_cb is not None:
                 try:
                     self.ack_cb(msg.alert_id, src)
                 except Exception:
                     log.exception("ack callback raised")
+        elif msg.kind == "reply":
+            if self.reply_cb is not None:
+                try:
+                    self.reply_cb(msg.alert_id, src, msg.text)
+                except Exception:
+                    log.exception("reply callback raised")
         else:
             # Geo updates the live-track store regardless of alert/text kind.
             if msg.fix is not None:
@@ -236,6 +268,12 @@ class IncomingDispatcher:
         if ack_id is not None:
             return IncomingMessage(source_hash=src, text=text, timestamp=timestamp,
                                    kind="ack", alert_id=ack_id)
+        # App-level reply? (check before alert — reply also carries the marker)
+        rep = decode_reply(text or "")
+        if rep is not None:
+            rid, rtext = rep
+            return IncomingMessage(source_hash=src, text=rtext, timestamp=timestamp,
+                                   kind="reply", alert_id=rid)
         # App-to-app alert marker?
         decoded = decode_alert(text or "")
         if decoded is not None:
