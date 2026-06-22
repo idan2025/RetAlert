@@ -253,8 +253,17 @@ part that changes between handoffs — keep it current.**
   **builds green, ~22 MB artifact**), `desktop.yml` (PyInstaller Linux binary),
   `release.yml` (tag `v*` → GitHub Release with APK + desktop binary + wheel;
   signing wired via secrets, hyphen tags = pre-release).
-- **Release signing**: `scripts/make-keystore.sh` + `docs/ANDROID_SIGNING.md`;
-  CI signs when the four `ANDROID_*` secrets are set, else builds unsigned.
+- **Release signing**: `scripts/make-keystore.sh` + `docs/ANDROID_SIGNING.md`.
+  `buildozer.spec` sets `android.release_artifact = apk` (installable APK, not an
+  .aab). `release.yml` builds a **signed release APK when the four `ANDROID_*`
+  secrets are set, else falls back to `buildozer android debug`** so every
+  release still ships an installable APK. Validated end-to-end by the
+  `v0.1.0-rc2` prerelease (unsigned/debug path).
+- **Signing status at handoff**: the owner generated a keystore locally, but
+  `gh api .../actions/secrets` shows `total_count: 0` — the four secrets are not
+  yet added, so releases are currently unsigned. To enable signing, add them
+  (`docs/ANDROID_SIGNING.md` has `gh secret set` one-liners), confirm with
+  `gh secret list`, then tag `v0.1.0`.
 
 ## Conventions — KEEP THESE
 1. **Testable-controller rule.** All UI logic goes in
@@ -290,6 +299,10 @@ python scripts/make_icon.py                     # regenerate data/icon.png
 - **p4a needs transitive pure-Python deps listed explicitly** in
   `buildozer.spec` `requirements` (e.g. mapview → requests, urllib3, idna,
   charset-normalizer, certifi).
+- **`buildozer android release` always passes `--sign` and builds an `.aab`** —
+  it fails without a keystore. Hence `android.release_artifact = apk` and the
+  release workflow's debug-fallback when unsigned. `buildozer android debug` is
+  the reliable always-works path.
 - Watch a run: `gh run watch <id> --exit-status`; logs:
   `gh run view <id> --log-failed`.
 
@@ -315,8 +328,12 @@ python scripts/make_icon.py                     # regenerate data/icon.png
 6. **Desktop/own location without GPS**: implement `LinuxFixSource`
    (`retalert/core/geo_tracker.py:125`) or add a manual "set my location" entry
    on the Map screen (controller has `update_own_location`).
-7. **Signed v0.1.0 release**: user adds the keystore secrets
-   (`docs/ANDROID_SIGNING.md`), then `git tag v0.1.0 && git push --tags`.
+7. **Signed v0.1.0 release**: the release pipeline is proven — `v0.1.0-rc2`
+   published a prerelease with an installable debug APK + `retalert-desktop` +
+   wheel/sdist. For a *signed* `v0.1.0`: add the four `ANDROID_*` secrets
+   (`docs/ANDROID_SIGNING.md`; `gh secret list` to confirm), then
+   `git tag v0.1.0 && git push --tags`. Delete the `-rc` prereleases/tags once
+   the real release is out.
 8. **Polish**: own-position marker distinct from peers + marker callouts;
    multi-arch APK (add `armeabi-v7a`); bump actions off Node 20.
 9. **iOS** — deferred per spec (architecture allows BeeWare/native later).

@@ -42,6 +42,18 @@ blocks `*.keystore` / `*.jks`).
    | `ANDROID_KEY_ALIAS` | `retalert` (the alias) |
    | `ANDROID_KEY_PASSWORD` | the key password you chose |
 
+   Or add them from the terminal with the GitHub CLI (no web UI, no pasting the
+   base64 by hand):
+
+   ```sh
+   gh secret set ANDROID_KEYSTORE_BASE64 < <(base64 -w0 retalert-release.keystore)
+   gh secret set ANDROID_KEY_ALIAS       --body retalert
+   gh secret set ANDROID_KEYSTORE_PASSWORD   # prompts for the value
+   gh secret set ANDROID_KEY_PASSWORD        # prompts for the value
+   ```
+
+   Verify they registered: `gh secret list` (shows names only, never values).
+
 ## Cutting a signed release
 
 ```sh
