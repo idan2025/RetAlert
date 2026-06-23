@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">RetAlert</string>
+    <string name="accessibility_service_label">RetAlert hardware triggers</string>
+    <string name="accessibility_service_desc">Captures volume-key sequences to fire RetAlert preset alerts. Reads no screen content.</string>
 </resources>

@@ -61,5 +61,13 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.coil.compose)
     implementation(libs.osmdroid.android)
+
+    // Phase 4 — native platform features
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+    implementation(libs.google.play.services.location)
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

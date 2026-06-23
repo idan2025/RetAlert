@@ -348,3 +348,115 @@ python scripts/make_icon.py                     # regenerate data/icon.png
 - `.github/workflows/` — ci / android / desktop / release.
 - `buildozer.spec` — APK config (requirements, perms, icon, archs).
 - Map: offline-capable (MBTiles / OSM raster) map widget for Kivy (e.g. `mapview` or equivalent), online tiles opportunistic.
+
+---
+
+## Android native rewrite (Kotlin/Compose/Material3)
+
+The Python+Kivy app was the v0.x reference implementation. Phases 0–5 of a
+native Android rewrite are complete and the app builds green
+(`:app:assembleDebug`). The Python tree was **removed in Phase 6**; git
+history retains it as the parity reference. **Wire formats MUST stay
+byte-identical to the original Python app** (`!RETALERT!` markers, `geo:`
+URIs, msgpack media 6-tuple) — the `:domain` module is the parity boundary.
+
+### Stack + toolchain
+- Kotlin 2.3.0, AGP 9.1.0 (ships its own Kotlin, so no separate
+  `kotlin-android` plugin version to manage), KSP 2.3.6, Hilt 2.59.2,
+  Gradle 9.4.1 (wrapper), Compose BOM 2025.06.00, kotlinx.serialization 1.8.0,
+  coroutines 1.10.2.
+- `compileSdk`/`targetSdk` 36, `minSdk` 26, `applicationId = network.retalert`,
+  `versionName = 0.1.0-rc2`. JVM target 17 for app/library code (JDK 21
+  toolchain).
+- JDK 21 user-space toolchain via `android/env.sh` (exports `JAVA_HOME`,
+  `ANDROID_HOME`, `PATH`). The Gradle daemon is stale under JDK 26, so
+  builds use `--no-daemon`.
+- CI: `.github/workflows/android-kt.yml` (JDK 21 + Android SDK 36 /
+  build-tools 36.0.0, Gradle cache keyed on `libs.versions.toml` +
+  `build.gradle.kts` + `settings.gradle.kts`).
+
+### Multi-module Gradle (`android/settings.gradle.kts`)
+Five modules, `repositoriesMode = FAIL_ON_PROJECT_REPOS` with JitPack for
+reticulum-kt:
+- **`:domain`** — pure-JVM Kotlin (`kotlin-jvm`). All parity logic + wire
+  format: `!RETALERT!` markers, `geo:` URIs (RFC 5870-ish), msgpack media
+  6-tuple `[str, str, int, int, str, bin]` (byte-identical to Python
+  `umsgpack.packb/unpackb`). 83 JUnit5 tests.
+- **`:data`** — Room 2.7.1 repositories (`Entities.kt`, `Daos.kt`,
+  `RetAlertDatabase.kt`, `Converters.kt`, `RoomRepositories.kt`),
+  DataStore 1.1.7. Implements the `:domain` repository interfaces.
+- **`:reticulum`** — Android library; reticulum-kt + foreground service.
+  `ReticulumService` (foregroundServiceType `dataSync`) owns the stack
+  lifecycle. **LXMF is stubbed**: `StubLxmfRouter` is a compiling no-op that
+  logs warnings, because LXMF-kt (`com.github.torlando-tech.lxmf-kt:lxmf-core`)
+  publishes no JitPack artifacts — a composite-build integration is pending
+  (mirrors Columba). `RnsAdapters` / `MediaOverRns` / `ShareInstance` /
+  `AnnounceHandler` wire `:domain` engines to RNS.
+- **`:updater`** — pure-JVM in-app GitHub-tag updater. 14 JUnit5 tests.
+- **`:app`** — Compose UI + Hilt + native platform features. Single-activity
+  (`MainActivity`, `@AndroidEntryPoint`), `RetAlertApp` (`@HiltAndroidApp`)
+  starts `ReticulumService` from `onCreate`.
+
+### Dependencies (`android/gradle/libs.versions.toml`)
+- reticulum-kt **v0.0.22** via JitPack:
+  `com.github.torlando-tech.reticulum-kt:{rns-android,rns-core,rns-interfaces}`.
+- LXMF-kt **v0.0.14** declared but **not on JitPack** (composite-build
+  pending, stubbed — see above).
+- CameraX 1.4.2 (`camera-core`/`camera2`/`camera-lifecycle`/`camera-view`).
+- play-services-location 21.3.0.
+- Room 2.7.1, DataStore 1.1.7, osmdroid 6.1.20, Coil 2.7.0, Material Icons
+  Extended, Navigation Compose 2.9.0, lifecycle 2.9.1, activity-compose
+  1.10.1, core-ktx 1.17.0.
+- Test: JUnit Jupiter 5.13.4, mockk 1.14.4, Robolectric 4.15.1,
+  kotlinx-coroutines-test, androidx-test-core/runner 1.7.0, room-testing.
+
+### Foreground service + incoming alerts
+- `ReticulumService` (dataSync) is started from `RetAlertApp.onCreate` and
+  runs a persistent low-importance notification to keep the Reticulum stack
+  (announce + inbound listen + retry queue) alive in the background.
+- Incoming app-to-app alerts post a **high-importance, bypass-DnD,
+  full-screen-intent** notification via `AlertNotifier`
+  (`app/src/main/java/network/retalert/app/platform/AlertNotifier.kt`),
+  bound through the `IncomingNotifier` seam so `:domain` stays Android-free.
+
+### Permissions (`app/src/main/AndroidManifest.xml`)
+INTERNET, ACCESS_NETWORK_STATE, ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION,
+CAMERA, RECORD_AUDIO, POST_NOTIFICATIONS, FOREGROUND_SERVICE,
+FOREGROUND_SERVICE_DATA_SYNC, USE_FULL_SCREEN_INTENT, BLUETOOTH_CONNECT,
+BLUETOOTH_SCAN, WAKE_LOCK. `BIND_ACCESSIBILITY_SERVICE` guards the
+hardware-key accessibility service. Runtime-permission request flow lives in
+`MainActivity` (POST_NOTIFICATIONS on TIRAMISU+, CAMERA, RECORD_AUDIO,
+ACCESS_FINE_LOCATION) via `ActivityResultContracts.RequestMultiplePermissions`.
+
+### Native platform (`app/src/main/java/network/retalert/app/platform/`)
+- `FusedLocationSource` — own-location fix source backed by Play Services
+  `FusedLocationProviderClient`, exposed to `:domain` via the `FixSource` seam.
+- `AlertNotifier` — full-screen incoming-alert notifier (above).
+- `keys/HardwareKeyAccessibilityService` — volume-key capture →
+  `HardwareKeyManager` → preset alert trigger (user must enable in Settings;
+  `BIND_ACCESSIBILITY_SERVICE`, `accessibility_service_config` XML).
+- `media/PhotoCapture` (CameraX) + `media/OpusAudioRecorder` /
+  `media/OpusAudioPlayer` (MediaCodec opus) → `MediaChannel`
+  (`MediaModule` DI). **Photo/audio are High-tier-only**, mirroring the Python
+  `MediaChannel` tier gating.
+
+### Updater (`:updater`)
+- `Semver` compares the running `versionName` against the latest GitHub tag
+  on `idan2025/RetAlert` (`GithubRelease` / `UpdateChecker`).
+- `ApkDownloader` streams the APK to a temp file and atomically renames on
+  completion.
+- `InstallLauncher` drives a `PackageInstaller` session;
+  `InstallResultReceiver` is a self-cleaning BroadcastReceiver that consumes
+  the install result.
+- `UpdateCoordinator` + `UpdaterModule` (Hilt) orchestrate the flow.
+
+### Build invocation
+```sh
+cd android && source ./env.sh && ./gradlew :app:assembleDebug --no-daemon --console=plain
+```
+Tests (no device needed):
+```sh
+./gradlew :domain:test          # 83 JUnit5 tests
+./gradlew :updater:test         # 14 JUnit5 tests (5 Semver + 6 UpdateChecker + 1 ApkDownloader + 2 InstallLauncher)
+./gradlew :data:test            # Room (Robolectric)
+```

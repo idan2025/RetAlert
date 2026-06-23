@@ -15,8 +15,14 @@ coroutines = "1.10.2"
 serialization = "1.8.0"
 coil = "2.7.0"
 osmdroid = "6.1.20"
+camerax = "1.4.2"
+playServicesLocation = "21.3.0"
 junit = "5.13.4"
+junitPlatform = "1.13.4"
 mockk = "1.14.4"
+robolectric = "4.15.1"
+androidxTestCore = "1.7.0"
+androidxTestRunner = "1.7.0"
 reticulumKt = "v0.0.22"
 lxmfKt = "v0.0.14"
 
@@ -45,8 +51,19 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 osmdroid-android = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+google-play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 junit-jupiter = { group = "org.junit.jupiter", name = "junit-jupiter", version.ref = "junit" }
+junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher", version.ref = "junitPlatform" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
+androidx-test-core = { group = "androidx.test", name = "core", version.ref = "androidxTestCore" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
+junit-vintage-engine = { group = "org.junit.vintage", name = "junit-vintage-engine", version.ref = "junit" }
+room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 
 # Upstream Kotlin Reticulum + LXMF (JitPack)
 reticulum-kt-rns-android = { group = "com.github.torlando-tech.reticulum-kt", name = "rns-android", version.ref = "reticulumKt" }
