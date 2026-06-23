@@ -50,29 +50,39 @@ jobs:
           key: gradle-kt-${{ runner.os }}-${{ hashFiles('android/**/libs.versions.toml', 'android/**/build.gradle.kts', 'android/**/settings.gradle.kts') }}
           restore-keys: gradle-kt-${{ runner.os }}-
 
+      # Decode the keystore (if the secret is set) and export the signing env
+      # vars via GITHUB_ENV. A step output flags presence so the build/release
+      # steps can branch without referencing `secrets` in an `if` conditional.
       - name: Decode release keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        id: keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           {
             echo "RETALERT_KEYSTORE_FILE=$RUNNER_TEMP/release.keystore"
-            echo "RETALERT_KEYSTORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}"
-            echo "RETALERT_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }}"
-            echo "RETALERT_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}"
+            echo "RETALERT_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD"
+            echo "RETALERT_KEY_ALIAS=$ANDROID_KEY_ALIAS"
+            echo "RETALERT_KEY_PASSWORD=$ANDROID_KEY_PASSWORD"
           } >> "$GITHUB_ENV"
+          echo "present=true" >> "$GITHUB_OUTPUT"
 
       - name: Build release APK (signed)
-        if: ${{ env.RETALERT_KEYSTORE_FILE != '' }}
+        if: steps.keystore.outputs.present == 'true'
         run: ./gradlew :app:assembleRelease --no-daemon
 
       - name: Build debug APK (unsigned fallback)
-        if: ${{ env.RETALERT_KEYSTORE_FILE == '' }}
+        if: steps.keystore.outputs.present != 'true'
         run: ./gradlew :app:assembleDebug --no-daemon
 
       - name: Collect APK into release-assets
-        working-directory: android
         run: |
           mkdir -p release-assets
           if [ -n "$RETALERT_KEYSTORE_FILE" ]; then
@@ -83,7 +93,6 @@ jobs:
           ls -la release-assets/
 
       - name: Create GitHub Release
-        working-directory: ${{ github.workspace }}
         uses: softprops/action-gh-release@v2
         with:
           files: android/release-assets/*.apk
