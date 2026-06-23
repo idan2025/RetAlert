@@ -18,7 +18,9 @@ import network.retalert.reticulum.IncomingWiring
 import network.retalert.reticulum.ReticulumEngine
 import network.retalert.reticulum.RnsMediaLink
 import network.retalert.reticulum.RnsTransport
+import network.retalert.reticulum.ShareInstance
 import network.retalert.reticulum.lxmf.LxmfRouter
+import network.retalert.reticulum.lxmf.LxmfRouterImpl
 import network.retalert.reticulum.lxmf.StubLxmfRouter
 import javax.inject.Singleton
 
@@ -44,7 +46,14 @@ object ReticulumModule {
         network.retalert.reticulum.rnsTransportIntelligence()
 
     @Provides @Singleton
-    fun provideLxmfRouter(): LxmfRouter = StubLxmfRouter()
+    fun provideLxmfRouter(
+        @ApplicationContext context: Context,
+    ): LxmfRouter =
+        // Real LXMF-kt transport (composite build). StubLxmfRouter is retained
+        // as the compile-safe fallback for builds without the composite build;
+        // swap here if the composite build is ever unavailable.
+        LxmfRouterImpl(context)
+    // LxmfRouter fallback (unused): StubLxmfRouter()
 
     @Provides @Singleton
     fun provideRnsTransport(
@@ -64,6 +73,10 @@ object ReticulumModule {
 
     @Provides @Singleton
     fun provideRnsMediaLink(): RnsMediaLink = RnsMediaLink()
+
+    @Provides @Singleton
+    fun provideShareInstance(@ApplicationContext context: Context): ShareInstance =
+        ShareInstance(context)
 
     @Provides @Singleton
     fun provideMediaChannel(
@@ -100,6 +113,7 @@ object ReticulumModule {
         starred: network.retalert.domain.StarredRepository,
         settings: network.retalert.domain.SettingsRepository,
         contact: network.retalert.domain.ContactRepository,
+        shareInstance: ShareInstance,
     ): ReticulumEngine = ReticulumEngine(
         context = context,
         ackTracker = ackTracker,
@@ -117,5 +131,6 @@ object ReticulumModule {
         starredRepo = starred,
         settingsRepo = settings,
         contactRepo = contact,
+        shareInstance = shareInstance,
     )
 }

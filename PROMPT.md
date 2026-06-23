@@ -450,6 +450,17 @@ ACCESS_FINE_LOCATION) via `ActivityResultContracts.RequestMultiplePermissions`.
   the install result.
 - `UpdateCoordinator` + `UpdaterModule` (Hilt) orchestrate the flow.
 
+### LXMF-kt composite build
+LXMF-kt is not on JitPack; it is consumed via a Gradle composite build. Clone it
+at the repo root (sibling of `android/`) before building:
+```sh
+git clone --depth 1 --branch v0.0.14 https://github.com/torlando-tech/LXMF-kt lxmf-kt
+```
+`android/settings.gradle.kts` does `includeBuild("../lxmf-kt")` with a
+dependency substitution to `:lxmf-core`. The clone is git-ignored (never
+committed); CI clones it automatically (see `.github/workflows`). Pin `v0.0.14`
+matches the tested build.
+
 ### Build invocation
 ```sh
 cd android && source ./env.sh && ./gradlew :app:assembleDebug --no-daemon --console=plain

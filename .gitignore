@@ -40,9 +40,12 @@ tiles_cache/
 # generated artifact names directly, in case an instance is created in-repo
 # under a non-standard name (e.g. `retalert --storage ./mytest`). The `identity`
 # blob and the rns/ store hold PRIVATE KEYS.
+# Anchored to repo root so they do NOT match the Kotlin source package
+# android/.../reticulum/lxmf/ (which must be tracked). Instance data lives in
+# stora/ storb/ storage/ (ignored above) or at repo root when run in-tree.
 identity
-rns/
-lxmf/
+/rns/
+/lxmf/
 keys.json
 inbox.json
 contacts.json
@@ -63,3 +66,8 @@ key.properties
 # Downloaded offline map caches
 maps/
 *.mbtiles
+
+# Vendored upstream composite-build clone (LXMF-kt) — cloned locally AND in CI,
+# never committed. See android/settings.gradle.kts includeBuild + .github/workflows.
+# Pin: git clone --depth 1 --branch v0.0.14 https://github.com/torlando-tech/LXMF-kt lxmf-kt
+lxmf-kt/

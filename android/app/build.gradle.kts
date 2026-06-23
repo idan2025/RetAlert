@@ -20,10 +20,26 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    signingConfigs {
+        create("release") {
+            val keystoreFile = System.getenv("RETALERT_KEYSTORE_FILE")
+            if (!keystoreFile.isNullOrEmpty() && file(keystoreFile).exists()) {
+                storeFile = file(keystoreFile)
+                storePassword = System.getenv("RETALERT_KEYSTORE_PASSWORD") ?: ""
+                keyAlias = System.getenv("RETALERT_KEY_ALIAS") ?: "retalert"
+                keyPassword = System.getenv("RETALERT_KEY_PASSWORD") ?: ""
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            val keystoreFile = System.getenv("RETALERT_KEYSTORE_FILE")
+            if (!keystoreFile.isNullOrEmpty() && file(keystoreFile).exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

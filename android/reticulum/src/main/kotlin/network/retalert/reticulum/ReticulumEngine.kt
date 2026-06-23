@@ -48,6 +48,7 @@ class ReticulumEngine(
     private val starredRepo: network.retalert.domain.StarredRepository,
     private val settingsRepo: network.retalert.domain.SettingsRepository,
     private val contactRepo: network.retalert.domain.ContactRepository,
+    private val shareInstance: ShareInstance,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var dispatcher: network.retalert.domain.IncomingDispatcher? = null
@@ -135,12 +136,19 @@ class ReticulumEngine(
 
     private fun startReticulum(identity: Identity) {
         val configDir = File(context.filesDir, RNS_CONFIG_DIR).apply { mkdirs() }
+        // Attach to a host RNS instance (Sideband/Columba/MeshChat) when one is
+        // running locally; otherwise start our own standalone stack. The common
+        // case (no external host) boots exactly as before.
+        val hostRunning = runCatching { shareInstance.attach() }.getOrDefault(false)
+        val connectToShared = hostRunning
+        val shareInstanceMode = false // standalone server off; first release is client-attach only
+        Log.i(TAG, "startReticulum: hostRunning=$hostRunning connectToShared=$connectToShared")
         Reticulum.start(
             configDir.absolutePath,
             /* enableTransport             */ false,
-            /* shareInstance                */ false,
+            /* shareInstance                */ shareInstanceMode,
             /* sharedInstancePort           */ Reticulum.DEFAULT_SHARED_INSTANCE_PORT,
-            /* connectToSharedInstance      */ false,
+            /* connectToSharedInstance      */ connectToShared,
             /* transportIdentityOverride    */ identity,
             /* respondToProbes              */ false,
             /* useImplicitProof             */ false,

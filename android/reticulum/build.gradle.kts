@@ -22,8 +22,10 @@ dependencies {
     implementation(libs.reticulum.kt.rns.android)
     implementation(libs.reticulum.kt.rns.core)
     implementation(libs.reticulum.kt.rns.interfaces)
-    // LXMF-kt: integrated in Phase 2 via composite build (JitPack publishes no
-    // artifacts for LXMF-kt — no jitpack.yml install step). Mirrors columba.
+    // LXMF-kt real transport: composite build (../lxmf-kt) substitutes
+    // com.github.torlando-tech.LXMF-kt:lxmf-core -> :lxmf-core. JitPack
+    // publishes no artifacts for LXMF-kt (no jitpack.yml install step).
+    implementation(libs.lxmf.kt)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.hilt.android)

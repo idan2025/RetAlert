@@ -18,6 +18,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Clone LXMF-kt composite build
+        working-directory: ${{ github.workspace }}
+        run: |
+          git clone --depth 1 --branch v0.0.14 https://github.com/torlando-tech/LXMF-kt lxmf-kt
+          # Upstream v0.0.14 includes :lxmf-examples unconditionally; it applies
+          # the Shadow plugin 8.1.1, which is incompatible with Gradle 9 and fails
+          # the composite-build configuration phase even though we only consume
+          # :lxmf-core. Gate it behind an env var. Pinned tag => deterministic.
+          sed -i 's/^include(":lxmf-examples")$/if (System.getenv("INCLUDE_EXAMPLES") != null) { include(":lxmf-examples") }/' lxmf-kt/settings.gradle.kts
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:

@@ -24,7 +24,12 @@ robolectric = "4.15.1"
 androidxTestCore = "1.7.0"
 androidxTestRunner = "1.7.0"
 reticulumKt = "v0.0.22"
-lxmfKt = "v0.0.14"
+# LXMF-kt is consumed via composite build (../lxmf-kt), not JitPack. The
+# coordinate below matches the included build's published group
+# (com.github.torlando-tech.LXMF-kt); dependencySubstitution in
+# settings.gradle.kts maps it to :lxmf-core. No version is declared because
+# the composite build supplies the artifact directly.
+lxmfKt = "composite"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -65,11 +70,13 @@ androidx-test-runner = { group = "androidx.test", name = "runner", version.ref =
 junit-vintage-engine = { group = "org.junit.vintage", name = "junit-vintage-engine", version.ref = "junit" }
 room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
 
-# Upstream Kotlin Reticulum + LXMF (JitPack)
+# Upstream Kotlin Reticulum (JitPack) + LXMF (composite build, see settings.gradle.kts)
 reticulum-kt-rns-android = { group = "com.github.torlando-tech.reticulum-kt", name = "rns-android", version.ref = "reticulumKt" }
 reticulum-kt-rns-core = { group = "com.github.torlando-tech.reticulum-kt", name = "rns-core", version.ref = "reticulumKt" }
 reticulum-kt-rns-interfaces = { group = "com.github.torlando-tech.reticulum-kt", name = "rns-interfaces", version.ref = "reticulumKt" }
-lxmf-kt = { group = "com.github.torlando-tech.lxmf-kt", name = "lxmf-core", version.ref = "lxmfKt" }
+# Resolved via includeBuild("../lxmf-kt") + dependencySubstitution to :lxmf-core.
+# Version is intentionally absent (composite build supplies the artifact).
+lxmf-kt = { group = "com.github.torlando-tech.LXMF-kt", name = "lxmf-core" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
