@@ -2,32 +2,49 @@
 
 [![android-kt](https://github.com/idan2025/RetAlert/actions/workflows/android-kt.yml/badge.svg)](https://github.com/idan2025/RetAlert/actions/workflows/android-kt.yml)
 
-> **Note:** The Python+Kivy implementation has been superseded by a native
-> Kotlin/Compose/Material3 Android rewrite (Phases 0–5 complete; the Python
-> tree was removed in Phase 6 but is retained in git history as the parity
-> reference). See the *Android native rewrite* section of
-> [`PROMPT.md`](PROMPT.md) for the current architecture, build, and dependency
-> details. The sections below describe the historical Python app and are kept
-> for reference.
-
-Reticulum + LXMF emergency-alert app. Panic button (UI + hardware-key mapping),
-transport-aware failover (prioritize fastest interface, never start a heavy
-channel over LoRa, redundant fan-out for critical alerts), live location
-tracking with a map screen, audio/photo channels over a raw RNS link, and
-standalone or shared-instance operation (Sideband / Columba / MeshChat /
-MeshChatX). Android + Linux desktop first, iOS later.
-
-Full design spec: [`PROMPT.md`](PROMPT.md).
+Emergency alerts over [Reticulum](https://reticulum.network) / LXMF for Android —
+works without internet or cell service, over Wi-Fi/LAN, TCP, LoRa or through
+another Reticulum app on the phone.
 
 ## Get the app
-- **Android:** download `retalert-*.apk` from the [latest release](../../releases),
-  allow "install from unknown sources", and install. (Release signing:
-  [`docs/ANDROID_SIGNING.md`](docs/ANDROID_SIGNING.md).)
-- **Linux desktop:** download the `retalert-desktop` binary from a release, or
-  run from source (`pip install -e ".[ui]" && python main.py`).
-- **Headless / CLI:** `pip install -e .` then `retalert --help`.
+Download `app-release.apk` from the [latest release](../../releases), allow
+"install from unknown sources", and install. (Release signing:
+[`docs/ANDROID_SIGNING.md`](docs/ANDROID_SIGNING.md).)
 
-## Status
+## What it does
+- **Panic button** (hold to confirm): alerts your `default` preset's
+  recipients, or every contact, and can start sharing your live location.
+- **Presets**: saved alerts (severity, message, contacts or a group) that share
+  your location never / once / live. Fire them from the app or with a
+  **volume-key sequence**, even with the screen off.
+- **Real-time location**: live `geo:` updates to the people you alerted,
+  LoRa-aware, auto-stops after a set time, survives the app being killed.
+- **Map**: people sharing with you, their trails, distance and bearing,
+  tap-to-follow, offline map download.
+- **Delivery tracking**: per-recipient sent / delivered / acked / replied;
+  receivers ack or reply from the Inbox. Incoming alerts bypass Do Not Disturb.
+- **Connection**: AutoInterface (LAN/Wi-Fi peers, on by default), TCP
+  connections to Reticulum nodes, or a **shared instance** from Columba,
+  Sideband or MeshChat on the same phone.
+- Receive-only-from-contacts filter with per-address allow/block.
+
+Wire formats (`!RETALERT!` markers, `geo:` bodies) match the original Python
+app, so it interoperates with it and shows as readable text in other LXMF apps.
+
+## Build
+```sh
+git clone --depth 1 --branch v0.0.14 https://github.com/torlando-tech/LXMF-kt lxmf-kt
+sed -i 's/^include(":lxmf-examples")$/if (System.getenv("INCLUDE_EXAMPLES") != null) { include(":lxmf-examples") }/' lxmf-kt/settings.gradle.kts
+cd android && ./gradlew :app:assembleDebug        # JDK 21 + Android SDK 36
+./gradlew :domain:test :data:test :reticulum:test :updater:test
+```
+Architecture and development notes: [`PROMPT.md`](PROMPT.md).
+
+## Historical Python app
+The Python + Kivy implementation below was the v0.x reference. It was removed
+from the tree when the native Android app replaced it; git history keeps it.
+
+### Status
 Backend (Python core) implemented and tested via the headless CLI. UI phase
 in progress: a Kivy app (`main.py`) over a testable `retalert.ui.AppController`
 with screens for panic + status, send, inbox (reply/ack), outbox (ack state),
@@ -58,12 +75,12 @@ release APK next. Build-order progress:
 
 A self-updater is included as an early-priority feature.
 
-## Requirements
+### Requirements
 - Python >= 3.11 (developed on 3.14; `rns` + `lxmf` are pure-Python)
 - For the future Android/Kivy build, a Python 3.12 env will be used
   (Kivy/p4a wheels may lag 3.14) — not needed for the CLI.
 
-## Quickstart
+### Quickstart
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate        # fish: source .venv/bin/activate.fish
@@ -79,7 +96,7 @@ retalert update --check           # GitHub releases (latest tag default)
 `python -m retalert ...` works equivalently if the `retalert` script isn't on
 PATH.
 
-## CLI command reference
+### CLI command reference
 Global flags: `--storage <dir>` (per-instance storage, for multi-instance
 tests), `--display-name <name>`.
 
@@ -109,7 +126,7 @@ tests), `--display-name <name>`.
 | `ack <alert_id>` | Manually re-ack a received alert by id |
 | `update [--check\|--tag\|--prerelease\|-y]` | Self-update from GitHub releases |
 
-## Two-instance end-to-end test (same LAN)
+### Two-instance end-to-end test (same LAN)
 AutoInterface discovers LAN peers with zero config. In two terminals:
 
 ```sh
@@ -131,7 +148,7 @@ T1 prints `[ALERT [danger]] ...` (bypass-silent fires); T2 reports
 > default (`share_instance = Yes`). To force two fully independent stacks,
 > set `share_instance = No` in each storage dir's `rns/config`.
 
-## Presets
+### Presets
 A preset bundles a trigger's full configuration: severity, message,
 recipients (or a saved group), payload toggles, retry policy, and fan-out
 mode.
@@ -153,7 +170,7 @@ Payload classes: `text`, `gps_oneshot`, `gps_live`, `photo`, `audio`.
 Fan-out: `off` | `critical` (default; Hail Mary only for
 critical/danger/medical) | `all`.
 
-## Discover & contacts
+### Discover & contacts
 ```sh
 retalert discover list            # heard announces, freshest first
 retalert discover star <hash>     # star (persists across clear/restart)
@@ -161,7 +178,7 @@ retalert contacts add <hash>      # name pulled from discover if omitted
 retalert announce auto --interval 3600   # auto-announce every 1h
 ```
 
-## Incoming filter
+### Incoming filter
 `receive-only-from-contacts` is **on by default**: unknown senders are
 dropped. Allowlist overrides it; denylist always drops.
 
@@ -180,7 +197,7 @@ receiver acks it back (`!RETALERT!ack!<alert_id>`) or replies
 (`!RETALERT!reply!<alert_id>!<text>`); the sender's AckTracker moves
 that recipient `DELIVERED → ACKED` (or `→ REPLIED` with the reply text).
 
-## Shared instance
+### Shared instance
 Attach to a host app's RNS instance instead of running your own `rnsd`:
 
 ```sh
@@ -192,18 +209,18 @@ retalert instance detach
 
 Restart the daemon after attach/detach for the new RNS config to take effect.
 
-## Self-updater
+### Self-updater
 `retalert update` checks `idan2025/RetAlert` releases, defaults to the latest
 non-prerelease tag, downloads, pip-installs into the current environment, and
 removes its own temp artifacts. Options: `--check`, `--tag <tag>`,
 `--prerelease`, `--yes`. (Android APK self-update is a later, separate path.)
 
-## Tests
+### Tests
 ```sh
 pytest                             # full suite (256 tests)
 ```
 
-## CI / builds
+### CI / builds
 GitHub Actions, under [`.github/workflows`](.github/workflows):
 
 | Workflow | Trigger | Builds |
@@ -217,5 +234,5 @@ Phase 6.) To ship a **signed** release APK, set up a keystore once — see
 (`scripts/make-keystore.sh` + four repo secrets); without it the release APK is
 built unsigned.
 
-## License
+### License
 MIT.
