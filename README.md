@@ -40,6 +40,9 @@ cd android && ./gradlew :app:assembleDebug        # JDK 21 + Android SDK 36
 ```
 Architecture and development notes: [`PROMPT.md`](PROMPT.md).
 
+## License
+MIT — see [`LICENSE`](LICENSE).
+
 ## Historical Python app
 The Python + Kivy implementation below was the v0.x reference. It was removed
 from the tree when the native Android app replaced it; git history keeps it.
@@ -233,6 +236,3 @@ Phase 6.) To ship a **signed** release APK, set up a keystore once — see
 [`docs/ANDROID_SIGNING.md`](docs/ANDROID_SIGNING.md)
 (`scripts/make-keystore.sh` + four repo secrets); without it the release APK is
 built unsigned.
-
-### License
-MIT.
