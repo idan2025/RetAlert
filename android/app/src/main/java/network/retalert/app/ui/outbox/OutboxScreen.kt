@@ -17,6 +17,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -25,13 +26,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 import network.retalert.domain.AckState
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OutboxScreen(vm: OutboxViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { vm.refresh() }
+    // Delivery/ack states change from the mesh thread; poll while visible.
+    LaunchedEffect(Unit) {
+        while (true) { vm.refresh(); delay(2000) }
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Outbox") }, actions = {
@@ -62,8 +67,11 @@ fun OutboxScreen(vm: OutboxViewModel = hiltViewModel()) {
                                     AssistChip(onClick = {}, label = { Text("(no recipients)") })
                                 }
                                 row.states.forEach { rs ->
-                                    AssistChip(onClick = {}, label = { Text("${rs.recipient.take(6)}…=${rs.state}") })
+                                    AssistChip(onClick = {}, label = { Text("${rs.label}: ${rs.state}") })
                                 }
+                            }
+                            TextButton(onClick = { vm.remove(row.alertId) }) {
+                                Text(if (row.active) "Cancel" else "Delete")
                             }
                         }
                     }

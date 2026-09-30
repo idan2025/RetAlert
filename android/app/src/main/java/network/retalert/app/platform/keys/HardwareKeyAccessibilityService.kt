@@ -8,6 +8,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import network.retalert.domain.HardwareKeyManager
 import network.retalert.domain.KeyComboRepository
 import javax.inject.Inject
+import kotlin.concurrent.thread
 
 /**
  * Captures volume-key sequences and feeds them to [HardwareKeyManager], which
@@ -21,12 +22,10 @@ import javax.inject.Inject
  * media volume. When disarmed we pass the keys through (`false`) so normal
  * volume control still works. A fire-combo match is always consumed.
  *
- * Combo refresh: accessibility services cannot be programmatically
- * (re)started/updated from app code. The service reloads combos from
- * [KeyComboRepository] in [onServiceConnected]; after registering/editing
- * combos in Settings the user must toggle the service off/on in system
- * Accessibility settings to pick up the new set. (We can't even rebind the
- * service from within itself.)
+ * Combo refresh: the service seeds the singleton manager from
+ * [KeyComboRepository] in [onServiceConnected]; the Settings screen updates
+ * the same singleton when combos are added/removed, so no service toggle is
+ * needed.
  */
 @AndroidEntryPoint
 class HardwareKeyAccessibilityService : AccessibilityService() {
@@ -46,11 +45,16 @@ class HardwareKeyAccessibilityService : AccessibilityService() {
             flags = flags or AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS
             notificationTimeout = 0
         }
-        // Load persisted combos and register them. The manager is a singleton,
-        // so a fresh service connect re-seeds it from the latest saved set.
-        hardwareKeyManager.clear()
-        keyCombos.list().forEach { kc ->
-            hardwareKeyManager.register(kc.combo, kc.trigger, kc.arm)
+        // Load persisted combos (Room: off the main thread) and register them.
+        // The manager is a singleton that Settings also updates in place, so
+        // edits apply without toggling this service.
+        // Seed only an empty manager so a reconnect can't overwrite a newer set
+        // that Settings pushed in the meantime.
+        thread(name = "retalert-hwkey-load", isDaemon = true) {
+            val combos = runCatching { keyCombos.list() }.getOrDefault(emptyList())
+            if (hardwareKeyManager.listCombos().isEmpty()) {
+                combos.forEach { kc -> hardwareKeyManager.register(kc.combo, kc.trigger, kc.arm) }
+            }
         }
     }
 

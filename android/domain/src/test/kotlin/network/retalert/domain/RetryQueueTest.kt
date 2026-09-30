@@ -68,6 +68,24 @@ class RetryQueueTest {
         assertEquals("sent", ack.stateOf("a1", "aa"))
     }
 
+    @Test fun `in-flight recipients are skipped without counting an attempt`() {
+        val busy = mutableSetOf("aa")
+        val q = RetryQueue(ack, sendFn = { a, r -> sent.add(a to r) }, clock = clock,
+            inFlight = { _, r -> r in busy })
+        q.enqueue(alert(max = 1, interval = 3.0))
+        assertEquals(listOf("bb"), sent.map { it.second })
+        clock.epoch = 1004.0
+        q.flush()
+        // "aa" is still owned by the transport: no resend and not failed by maxAttempts.
+        assertEquals("sent", ack.stateOf("a1", "aa"))
+        assertEquals(0, ack.internalGet("a1", "aa")!!.attempts)
+        busy.clear()
+        sent.clear()
+        clock.epoch = 1008.0
+        q.flush()
+        assertEquals(listOf("aa"), sent.map { it.second })
+    }
+
     @Test fun `non-retryable exception marks failed`() {
         val q = RetryQueue(ack, sendFn = { _, _ -> throw IllegalStateException("boom") }, clock = clock)
         q.enqueue(alert())

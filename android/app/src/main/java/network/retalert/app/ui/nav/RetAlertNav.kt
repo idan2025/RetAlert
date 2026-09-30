@@ -81,7 +81,9 @@ fun RetAlertApp() {
                             selected = selected,
                             onClick = { nav.navigateTo(d) },
                             icon = { Icon(d.icon, contentDescription = d.label) },
-                            label = { Text(d.label) },
+                            label = { Text(d.label, maxLines = 1) },
+                            // 8 destinations: labels for all of them truncate on phones.
+                            alwaysShowLabel = false,
                         )
                     }
                 }

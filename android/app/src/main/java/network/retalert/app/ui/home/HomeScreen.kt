@@ -15,17 +15,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -39,6 +39,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -55,12 +59,15 @@ fun HomeScreen(vm: HomeViewModel = hiltViewModel()) {
             Modifier.fillMaxSize().padding(inner).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            Text(state.meshStatus, style = MaterialTheme.typography.labelMedium)
             Text("Own delivery hash", style = MaterialTheme.typography.labelSmall)
-            Text(
-                state.ownHash,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-            )
+            SelectionContainer {
+                Text(
+                    state.ownHash.ifEmpty { "—" },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                )
+            }
 
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (state.interfaces.isEmpty()) {
@@ -69,7 +76,7 @@ fun HomeScreen(vm: HomeViewModel = hiltViewModel()) {
                 state.interfaces.forEach {
                     AssistChip(
                         onClick = {},
-                        label = { Text("${it.tier}:${it.name}") },
+                        label = { Text("${it.tier}:${it.name}" + if (it.online) "" else " (down)") },
                         colors = AssistChipDefaults.assistChipColors(),
                     )
                 }
@@ -129,34 +136,36 @@ private fun HoldToConfirmPanic(
     LaunchedEffect(progress) { if (progress) anim.snapTo(0f) }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Button(
-            onClick = {},
+        // A plain Surface, not a Button: a Button's own click handling consumes
+        // the press before this gesture detector would see it.
+        Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(120.dp)
+                .semantics { role = Role.Button; contentDescription = "$label, $sublabel" }
                 .pointerInput(Unit) {
+                    // Fire only if the press is held for the full duration;
+                    // releasing early cancels.
                     detectTapGestures(
                         onPress = {
                             holding = true
-                            tryAwaitRelease()
-                            holding = false
-                        },
-                        onLongPress = {
-                            scope.launch {
+                            val job = scope.launch {
                                 anim.snapTo(0f)
                                 anim.animateTo(1f, tween(holdMs))
                                 onConfirm()
                             }
+                            tryAwaitRelease()
+                            job.cancel()
+                            holding = false
+                            anim.snapTo(0f)
                         },
                     )
                 },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer,
-            ),
+            color = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
             shape = CircleShape,
         ) {
-            Box(contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(label, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text(if (holding) "firing…" else sublabel, style = MaterialTheme.typography.labelSmall)

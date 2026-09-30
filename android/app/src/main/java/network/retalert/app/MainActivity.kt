@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -15,8 +16,10 @@ import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
 import network.retalert.app.ui.nav.RetAlertApp
 import network.retalert.app.ui.theme.RetAlertTheme
+import network.retalert.reticulum.ReticulumService
 
-/** Single-activity host for the Compose nav graph. Requests the runtime
+/** Single-activity host for the Compose nav graph. Starts the mesh service
+ *  (idempotent) and requests the runtime
  *  permissions the Phase-4 native features need (notifications, camera, mic,
  *  location) on first launch. */
 @AndroidEntryPoint
@@ -34,6 +37,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        runCatching {
+            ContextCompat.startForegroundService(this, Intent(this, ReticulumService::class.java))
+        }
         val launcher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* no-op */ }
         missingPerms().takeIf { it.isNotEmpty() }?.let { launcher.launch(it) }
         setContent {

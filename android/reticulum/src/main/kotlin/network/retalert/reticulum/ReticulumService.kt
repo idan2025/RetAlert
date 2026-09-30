@@ -12,12 +12,14 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
+import kotlin.concurrent.thread
 
 /**
  * Foreground service owning the RNS stack lifecycle. A thin shell around
- * [ReticulumEngine]; runs as `dataSync` foreground service so the mesh stays
- * alive in background. :app starts it with
- * `ContextCompat.startForegroundService(...)`; the manifest declares it.
+ * [ReticulumEngine]; runs as a `specialUse` foreground service (an always-on
+ * mesh listener — `dataSync` is capped at 6h/day on Android 15+) so alerts
+ * still arrive with the app in the background. :app starts it from
+ * `MainActivity` with `ContextCompat.startForegroundService(...)`.
  *
  * Parity with `retalert/daemon.py` `EmergencyDaemon.start`/`stop`.
  */
@@ -33,8 +35,13 @@ class ReticulumService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundCompat()
-        runCatching { engine.start() }
-            .onFailure { Log.e(TAG, "engine start failed", it) }
+        // Engine start does disk + socket I/O; never on the main thread.
+        if (!engine.isRunning) {
+            thread(name = "retalert-engine-start", isDaemon = true) {
+                runCatching { engine.start() }
+                    .onFailure { Log.e(TAG, "engine start failed", it) }
+            }
+        }
         return START_STICKY
     }
 
@@ -55,7 +62,7 @@ class ReticulumService : Service() {
 
     private fun buildNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
         .setContentTitle("RetAlert")
-        .setContentText("Mesh service active")
+        .setContentText("Listening for alerts on the mesh")
         .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
         .setOngoing(true)
         .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -64,7 +71,7 @@ class ReticulumService : Service() {
     private fun startForegroundCompat() {
         val n = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+            startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(NOTIFICATION_ID, n)
         }

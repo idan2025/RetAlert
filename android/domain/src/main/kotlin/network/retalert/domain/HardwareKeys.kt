@@ -8,7 +8,9 @@ data class KeyCombo(
 )
 
 /** Maps detected key combos to preset triggers with arm/dedup logic. Mirrors
- *  HardwareKeyManager. Persistence of combos → :data (Room). */
+ *  HardwareKeyManager. Persistence of combos → :data (Room). Mutators are
+ *  synchronized: combos are loaded on a worker thread while keys are fed on
+ *  the main thread. */
 class HardwareKeyManager(
     private val fireFn: (String) -> Any?,
     private val armWindowS: Double = DEFAULT_ARM_WINDOW_S,
@@ -18,14 +20,14 @@ class HardwareKeyManager(
     private val combos = ArrayList<KeyCombo>()
     private val buffer = ArrayList<String>()
     private val maxBuffer = 8
-    private var armed = false
+    @Volatile private var armed = false
     private var armedAt = 0.0
     private val lastFire = LinkedHashMap<List<String>, Double>()
 
     val isArmed: Boolean get() = armed
 
     /** Register a combo -> trigger (replaces any existing combo with the same seq). */
-    fun register(combo: List<String>, trigger: String, arm: Boolean = false) {
+    @Synchronized fun register(combo: List<String>, trigger: String, arm: Boolean = false) {
         require(combo.isNotEmpty()) { "combo must be non-empty" }
         combos.removeAll { it.combo == combo }
         combos.add(KeyCombo(combo, trigger, arm))
@@ -34,18 +36,18 @@ class HardwareKeyManager(
     fun register(vararg combo: String, trigger: String, arm: Boolean = false) =
         register(combo.toList(), trigger, arm)
 
-    fun unregister(combo: List<String>): Boolean {
+    @Synchronized fun unregister(combo: List<String>): Boolean {
         val before = combos.size
         combos.removeAll { it.combo == combo }
         return combos.size < before
     }
 
-    fun listCombos(): List<KeyCombo> = combos.toList()
+    @Synchronized fun listCombos(): List<KeyCombo> = combos.toList()
 
-    fun clear() { combos.clear(); buffer.clear(); armed = false; lastFire.clear() }
+    @Synchronized fun clear() { combos.clear(); buffer.clear(); armed = false; lastFire.clear() }
 
-    fun arm() { armed = true; armedAt = clock.monotonic() }
-    fun disarm() { armed = false }
+    @Synchronized fun arm() { armed = true; armedAt = clock.monotonic() }
+    @Synchronized fun disarm() { armed = false }
 
     private fun armExpired(): Boolean {
         if (!armed) return true
@@ -53,7 +55,7 @@ class HardwareKeyManager(
     }
 
     /** Feed one observed key press. Returns the trigger fired, or null. */
-    fun feed(key: String): String? {
+    @Synchronized fun feed(key: String): String? {
         buffer.add(key)
         if (buffer.size > maxBuffer) {
             val keep = buffer.takeLast(maxBuffer)
@@ -63,7 +65,7 @@ class HardwareKeyManager(
     }
 
     /** Feed several keys at once. Returns the last trigger fired, if any. */
-    fun feedSequence(keys: List<String>): String? {
+    @Synchronized fun feedSequence(keys: List<String>): String? {
         var result: String? = null
         for (k in keys) { feed(k)?.let { result = it } }
         return result

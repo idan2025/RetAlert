@@ -184,6 +184,11 @@ class RoomOutboxRepository(
 
     override fun pending(): List<Alert> = outboxDao.pendingAlerts().map { it.toDomain() }
 
+    override fun unfinished(): List<Alert> = pending().filter { a ->
+        val states = ackStates(a.alertId)
+        states.isEmpty() || states.values.any { it == network.retalert.domain.AckState.SENT }
+    }
+
     override fun remove(alertId: String) {
         outboxDao.deleteAcks(alertId)
         outboxDao.deleteAlert(alertId)
@@ -212,6 +217,10 @@ class RoomSettingsRepository(
         val allowlist: List<String> = emptyList(),
         val denylist: List<String> = emptyList(),
         val distanceUnits: String = "km",
+        val autoInterface: Boolean = true,
+        val tcpInterfaces: List<String> = emptyList(),
+        val autoAnnounce: Boolean = false,
+        val announceInterval: Double = network.retalert.domain.ANNOUNCE_MIN_INTERVAL,
     )
 
     override fun load(): Settings {
@@ -222,6 +231,10 @@ class RoomSettingsRepository(
             allowlist = s.allowlist.toMutableSet(),
             denylist = s.denylist.toMutableSet(),
             distanceUnits = s.distanceUnits,
+            autoInterface = s.autoInterface,
+            tcpInterfaces = s.tcpInterfaces.toMutableList(),
+            autoAnnounce = s.autoAnnounce,
+            announceInterval = s.announceInterval,
         )
     }
 
@@ -231,6 +244,10 @@ class RoomSettingsRepository(
             allowlist = settings.allowlist.toList(),
             denylist = settings.denylist.toList(),
             distanceUnits = settings.distanceUnits,
+            autoInterface = settings.autoInterface,
+            tcpInterfaces = settings.tcpInterfaces.toList(),
+            autoAnnounce = settings.autoAnnounce,
+            announceInterval = settings.announceInterval,
         )
         dao.upsert(SettingsEntity(1, json.encodeToString(Snapshot.serializer(), s)))
     }

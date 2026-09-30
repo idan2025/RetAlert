@@ -55,7 +55,10 @@ interface SettingsRepository {
  *  AckTracker/RetryQueue run in-memory in :reticulum and persist via this repo. */
 interface OutboxRepository {
     fun enqueue(alert: Alert)
+    /** Every stored outgoing alert, oldest first (display). */
     fun pending(): List<Alert>
+    /** Alerts with at least one recipient still awaiting delivery (replayed on start). */
+    fun unfinished(): List<Alert>
     fun remove(alertId: String)
     /** Per-recipient ack states for one alert (alertId -> recipientHex -> state). */
     fun ackStates(alertId: String): Map<String, String>

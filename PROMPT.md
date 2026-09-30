@@ -471,3 +471,35 @@ Tests (no device needed):
 ./gradlew :updater:test         # 14 JUnit5 tests (5 Semver + 6 UpdateChecker + 1 ApkDownloader + 2 InstallLauncher)
 ./gradlew :data:test            # Room (Robolectric)
 ```
+### Runtime fixes (post rc3)
+`v0.1.0-rc3` crashed on launch: every ViewModel (and the service's engine
+start) called the synchronous Room DAOs on the main thread, which Room
+rejects. Fixed along with the pieces that made the app a no-op on the mesh:
+
+- **Threading**: all repository calls run on `Dispatchers.IO`; the engine
+  starts on a worker thread from `ReticulumService`.
+- **Interfaces**: reticulum-kt's `Reticulum.start()` creates no interfaces.
+  `ReticulumEngine` now registers them itself — **AutoInterface on by
+  default** (with a Wi-Fi multicast lock) plus user-configured TCP client
+  interfaces — and can add/remove them live from Settings. Shared-instance
+  attach now sets the LocalClient factory + interface registrar it needs.
+- **Sending**: UI paths only wrote to Room; they now go through
+  `AlertDispatcher` → `ReticulumEngine.sendAlert` (persist + RetryQueue).
+  No-path sends request a path. `RetryQueue` skips recipients whose LXMF
+  send is still in flight (no duplicate flood over slow links); per-recipient
+  ack states are persisted (ordered) and restored on restart; finished alerts
+  are no longer replayed.
+- **Receiving**: contacts/allow/deny are read per inbound message (edits
+  apply immediately); Inbox ack/reply are sent over LXMF (they previously
+  edited the local outbox).
+- **UI**: real delivery hash + interfaces on Home; hold-to-confirm panic
+  actually cancels on release (and falls back to all contacts without a
+  `default` preset); preset and group creation; Map demo peer removed,
+  MapView lifecycle fixed, tap-to-follow; photo/audio hidden from Send until
+  an RNS media Link exists (`RnsMediaLink.setActiveLink` is never called).
+- Foreground service type is `specialUse` (dataSync is capped at 6h/day on
+  Android 15+). Interface tiers are classified by interface name (every live
+  ref is an `InterfaceAdapter`, so class-name lookup always said LOW).
+
+Still open: media Link establishment, sending live `geo:` shares to peers
+(Map "Live GPS" only updates own position), an in-app updater UI.

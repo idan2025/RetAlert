@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -29,52 +30,64 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 
 private val CANNED_REPLIES = listOf("Acknowledged", "On my way", "Cannot help", "Stand by")
 
 @Composable
 fun InboxScreen(vm: InboxViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
-    var replyFor by remember { mutableStateOf<String?>(null) }
+    var replyFor by remember { mutableStateOf<InboxRow?>(null) }
+
+    // Inbound alerts land in Room from the mesh thread; poll while visible.
+    LaunchedEffect(Unit) {
+        while (true) { vm.refresh(); delay(3000) }
+    }
 
     Scaffold(
         topBar = { TopAppBar(title = { Text("Inbox") }, actions = {
-            androidx.compose.material3.TextButton(onClick = { vm.refresh() }) { Text("Refresh") }
+            TextButton(onClick = { vm.refresh() }) { Text("Refresh") }
         }) },
     ) { inner ->
-        if (state.entries.isEmpty()) {
-            Text(
-                "(inbox empty)",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.fillMaxSize().padding(inner).padding(16.dp),
-            )
-        } else {
-            LazyColumn(
-                Modifier.fillMaxSize().padding(inner).padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                items(state.entries, key = { it.alertId }) { e ->
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(10.dp)) {
-                            Text("[${e.severity}] ${e.alertId.take(8)}…", style = MaterialTheme.typography.labelSmall)
-                            Text(e.text.take(140), style = MaterialTheme.typography.bodySmall)
-                            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(onClick = { vm.ackAlert(e.alertId) }) { Text("Ack") }
-                                OutlinedButton(onClick = { replyFor = e.alertId }) { Text("Reply") }
+        Column(Modifier.fillMaxSize().padding(inner)) {
+            if (state.flash.isNotEmpty()) {
+                Text(state.flash, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+            }
+            if (state.entries.isEmpty()) {
+                Text(
+                    "(inbox empty)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(16.dp),
+                )
+            } else {
+                LazyColumn(
+                    Modifier.fillMaxSize().padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(state.entries, key = { it.alertId }) { e ->
+                        Card(Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(10.dp)) {
+                                val from = e.sourceName.ifBlank { e.sourceHash.take(8) + "…" }
+                                Text("[${e.severity}] from $from", style = MaterialTheme.typography.labelSmall)
+                                Text(e.text.take(280), style = MaterialTheme.typography.bodyMedium)
+                                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    OutlinedButton(onClick = { vm.ackAlert(e) }) { Text("Ack") }
+                                    OutlinedButton(onClick = { replyFor = e }) { Text("Reply") }
+                                    TextButton(onClick = { vm.remove(e) }) { Text("Dismiss") }
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        Text(state.flash, modifier = Modifier.padding(8.dp))
     }
 
-    replyFor?.let { id ->
+    replyFor?.let { row ->
         ReplyDialog(
             onDismiss = { replyFor = null },
             onReply = { text ->
-                vm.reply(id, text)
+                vm.reply(row, text)
                 replyFor = null
             },
         )
@@ -96,10 +109,8 @@ private fun ReplyDialog(onDismiss: () -> Unit, onReply: (String) -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    CANNED_REPLIES.take(3).forEach { canned ->
-                        TextButton(onClick = { text = canned }) { Text(canned) }
-                    }
+                CANNED_REPLIES.forEach { canned ->
+                    TextButton(onClick = { text = canned }) { Text(canned) }
                 }
             }
         },

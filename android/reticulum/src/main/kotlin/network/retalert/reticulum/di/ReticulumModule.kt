@@ -65,7 +65,7 @@ object ReticulumModule {
     fun provideRetryQueue(
         ackTracker: AckTracker,
         rnsTransport: RnsTransport,
-    ): RetryQueue = RetryQueue(ackTracker, sendFn = rnsTransport::send)
+    ): RetryQueue = RetryQueue(ackTracker, sendFn = rnsTransport::send, inFlight = rnsTransport::isInFlight)
 
     @Provides @Singleton
     fun provideAnnounceEngine(lxmf: LxmfRouter): AnnounceEngine =
@@ -106,9 +106,7 @@ object ReticulumModule {
         lxmf: LxmfRouter,
         announceEngine: AnnounceEngine,
         mediaChannel: MediaChannel,
-        rnsTransport: RnsTransport,
         incomingWiring: IncomingWiring,
-        notifier: IncomingNotifier,
         outbox: network.retalert.domain.OutboxRepository,
         starred: network.retalert.domain.StarredRepository,
         settings: network.retalert.domain.SettingsRepository,
@@ -124,9 +122,7 @@ object ReticulumModule {
         lxmf = lxmf,
         announceEngine = announceEngine,
         mediaChannel = mediaChannel,
-        rnsTransport = rnsTransport,
         incomingWiring = incomingWiring,
-        notifier = notifier,
         outboxRepo = outbox,
         starredRepo = starred,
         settingsRepo = settings,

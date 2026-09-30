@@ -11,6 +11,14 @@ data class RecipientState(
 
 /** In-memory per-recipient state for outgoing alerts. Thread-safe. */
 class AckTracker(private val clock: Clock = RealClock) {
+    /** Observer for per-recipient state transitions (e.g. persist to the outbox).
+     *  Invoked outside the tracker's lock. */
+    @Volatile var onStateChange: ((alertId: String, recipient: String, state: String) -> Unit)? = null
+
+    private fun notify(alertId: String, recipient: String, before: String?, after: String?) {
+        if (after != null && before != after) runCatching { onStateChange?.invoke(alertId, recipient, after) }
+    }
+
     // alertId -> (recipientHex -> RecipientState)
     private val state: MutableMap<String, MutableMap<String, RecipientState>> = LinkedHashMap()
 
@@ -35,26 +43,30 @@ class AckTracker(private val clock: Clock = RealClock) {
         }
     }
 
-    @Synchronized
-    fun onDelivered(alertId: String, recipient: String) {
-        get(alertId, recipient)?.let { rs ->
-            if (rs.state != AckState.ACKED && rs.state != AckState.REPLIED) rs.state = AckState.DELIVERED
+    /** Apply [change] to one recipient under the lock; notify the observer
+     *  (outside the lock) with the before/after states captured atomically. */
+    private fun transition(alertId: String, recipient: String, change: (RecipientState) -> Unit) {
+        val (before, after) = synchronized(this) {
+            val rs = get(alertId, recipient) ?: return
+            val b = rs.state
+            change(rs)
+            b to rs.state
+        }
+        notify(alertId, recipient, before, after)
+    }
+
+    fun onDelivered(alertId: String, recipient: String) = transition(alertId, recipient) { rs ->
+        if (rs.state != AckState.ACKED && rs.state != AckState.REPLIED) rs.state = AckState.DELIVERED
+    }
+
+    fun onFailed(alertId: String, recipient: String, error: String = "") = transition(alertId, recipient) { rs ->
+        if (rs.state != AckState.ACKED && rs.state != AckState.REPLIED) {
+            rs.state = AckState.FAILED
+            rs.lastError = error
         }
     }
 
-    @Synchronized
-    fun onFailed(alertId: String, recipient: String, error: String = "") {
-        get(alertId, recipient)?.let { rs ->
-            if (rs.state != AckState.ACKED && rs.state != AckState.REPLIED) {
-                rs.state = AckState.FAILED
-                rs.lastError = error
-            }
-        }
-    }
-
-    @Synchronized
-    fun onAck(alertId: String, recipient: String, reply: String = "") {
-        val rs = get(alertId, recipient) ?: return
+    fun onAck(alertId: String, recipient: String, reply: String = "") = transition(alertId, recipient) { rs ->
         rs.state = if (reply.isNotEmpty()) AckState.REPLIED else AckState.ACKED
         if (reply.isNotEmpty()) rs.reply = reply
     }

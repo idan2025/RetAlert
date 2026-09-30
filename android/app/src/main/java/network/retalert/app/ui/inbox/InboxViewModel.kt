@@ -3,14 +3,15 @@ package network.retalert.app.ui.inbox
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import network.retalert.domain.AckState
+import network.retalert.domain.ContactRepository
 import network.retalert.domain.InboxRepository
-import network.retalert.domain.OutboxRepository
+import network.retalert.reticulum.ReticulumEngine
 import javax.inject.Inject
 
 data class InboxUiState(
@@ -21,16 +22,18 @@ data class InboxUiState(
 data class InboxRow(
     val alertId: String,
     val sourceHash: String,
+    val sourceName: String,
     val severity: String,
     val text: String,
 )
 
 /** Inbox screen: received alerts list, reply (canned/text) + manual ack by
- *  alert_id. */
+ *  alert_id — both sent back to the alert's sender over LXMF. */
 @HiltViewModel
 class InboxViewModel @Inject constructor(
     private val inbox: InboxRepository,
-    private val outbox: OutboxRepository,
+    private val contacts: ContactRepository,
+    private val engine: ReticulumEngine,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(InboxUiState())
@@ -38,24 +41,32 @@ class InboxViewModel @Inject constructor(
 
     init { refresh() }
 
-    fun refresh() = viewModelScope.launch {
-        _state.update { it.copy(entries = inbox.list().map { e ->
-            InboxRow(e.alertId, e.sourceHash, e.severity, e.text)
-        }) }
+    fun refresh() = viewModelScope.launch(Dispatchers.IO) {
+        val rows = runCatching {
+            val names = contacts.list().associate { it.hash to it.name }
+            inbox.list().map { e ->
+                InboxRow(e.alertId, e.sourceHash, names[e.sourceHash].orEmpty(), e.severity, e.text)
+            }
+        }.getOrDefault(emptyList())
+        _state.update { it.copy(entries = rows) }
     }
 
-    /** Manual ack by alert_id: marks the matching sent alert's recipient acked. */
-    fun ackAlert(alertId: String) = viewModelScope.launch {
-        outbox.ackStates(alertId).keys.forEach { r -> outbox.setAckState(alertId, r, AckState.ACKED) }
-        _state.update { it.copy(flash = "acked $alertId") }
+    /** Re-send the app-level ack for an alert to its sender. */
+    fun ackAlert(row: InboxRow) = viewModelScope.launch(Dispatchers.IO) {
+        val flash = runCatching { engine.ack(row.alertId, row.sourceHash) }
+            .fold({ "ack sent for ${row.alertId.take(8)}…" }, { "ack failed: ${it.message}" })
+        _state.update { it.copy(flash = flash) }
+    }
+
+    /** Send a reply (ack + canned or free text) to the alert's sender. */
+    fun reply(row: InboxRow, text: String) = viewModelScope.launch(Dispatchers.IO) {
+        val flash = runCatching { engine.reply(row.alertId, row.sourceHash, text) }
+            .fold({ if (text.isBlank()) "replied to ${row.alertId.take(8)}…" else "replied: $text" }, { "reply failed: ${it.message}" })
+        _state.update { it.copy(flash = flash) }
+    }
+
+    fun remove(row: InboxRow) = viewModelScope.launch(Dispatchers.IO) {
+        runCatching { inbox.remove(row.alertId) }
         refresh()
-    }
-
-    /** Send a reply (canned or free text) — records an ack+reply on the outbox. */
-    fun reply(alertId: String, text: String) = viewModelScope.launch {
-        outbox.ackStates(alertId).keys.forEach { r ->
-            outbox.setAckState(alertId, r, AckState.REPLIED)
-        }
-        _state.update { it.copy(flash = if (text.isBlank()) "replied $alertId" else "replied: $text") }
     }
 }

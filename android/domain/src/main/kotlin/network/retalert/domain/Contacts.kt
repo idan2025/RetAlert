@@ -24,6 +24,12 @@ class Settings(
     var allowlist: MutableSet<String> = mutableSetOf(),
     var denylist: MutableSet<String> = mutableSetOf(),
     var distanceUnits: String = "km",   // "km" | "mi"
+    /** LAN AutoInterface (IPv6 multicast peer discovery). On by default. */
+    var autoInterface: Boolean = true,
+    /** TCP client interfaces as "host:port" entries (e.g. a transport node). */
+    var tcpInterfaces: MutableList<String> = mutableListOf(),
+    var autoAnnounce: Boolean = false,
+    var announceInterval: Double = ANNOUNCE_MIN_INTERVAL,
 ) {
     /** Set distance units, normalising to km|mi. */
     fun applyDistanceUnits(units: String) { distanceUnits = if (units == "mi") "mi" else "km" }
@@ -36,6 +42,15 @@ class Settings(
         val h = hashHex.lowercase().trim()
         denylist.add(h); allowlist.remove(h)
     }
+    /** Add a TCP client interface. Returns the normalised "host:port", or null if invalid. */
+    fun addTcpInterface(spec: String): String? {
+        val norm = normalizeTcpSpec(spec) ?: return null
+        if (norm !in tcpInterfaces) tcpInterfaces.add(norm)
+        return norm
+    }
+
+    fun removeTcpInterface(spec: String): Boolean = tcpInterfaces.remove(spec)
+
     fun forget(hashHex: String) {
         val h = hashHex.lowercase().trim()
         allowlist.remove(h); denylist.remove(h)
@@ -82,3 +97,25 @@ class Groups {
 
     fun clear() = groups.clear()
 }
+/** Parse "host:port" (IPv6 as "[addr]:port"). Returns the normalised spec or null. */
+fun normalizeTcpSpec(spec: String): String? = parseTcpSpec(spec)?.let { (h, p) ->
+    if (':' in h) "[$h]:$p" else "$h:$p"
+}
+
+/** Split a "host:port" spec into (host, port); null when malformed. */
+fun parseTcpSpec(spec: String): Pair<String, Int>? {
+    val t = spec.trim()
+    val idx = t.lastIndexOf(':')
+    if (idx <= 0 || idx == t.length - 1) return null
+    val host = t.substring(0, idx).removePrefix("[").removeSuffix("]").trim()
+    val port = t.substring(idx + 1).toIntOrNull() ?: return null
+    if (host.isEmpty() || host.any { it.isWhitespace() } || port !in 1..65535) return null
+    return host to port
+}
+
+private val HASH_RE = Regex("^[0-9a-f]{32}$")
+
+/** Normalise a user-entered destination hash (strips `<>`, `:` and spaces). Null if not 16 bytes of hex. */
+fun normalizeHash(input: String): String? =
+    input.trim().removePrefix("<").removeSuffix(">").replace(":", "").replace(" ", "").lowercase()
+        .takeIf { HASH_RE.matches(it) }

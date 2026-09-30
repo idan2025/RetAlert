@@ -49,13 +49,14 @@ class IncomingWiring(
         val replyCb: (alertId: String, sourceHex: String, reply: String) -> Unit = { id, src, reply ->
             ackTracker.onAck(id, src, reply)
         }
+        // Alerts are recorded in the inbox; the user-facing notification comes
+        // only from the bypass-silent hook (alerts), not for acks/replies/geo.
         val onMessage: (IncomingMessage) -> Unit = { msg ->
             if (msg.kind == "alert" && msg.alertId.isNotEmpty()) {
                 runCatching {
                     inbox.record(msg.alertId, msg.sourceHash, msg.severity, msg.text, msg.timestamp)
                 }
             }
-            runCatching { notifier.onAlert(msg) }
         }
 
         return IncomingDispatcher(

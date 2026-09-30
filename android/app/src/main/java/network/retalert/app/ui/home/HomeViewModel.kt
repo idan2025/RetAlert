@@ -3,29 +3,28 @@ package network.retalert.app.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import network.retalert.domain.Alert
+import network.retalert.app.platform.AlertDispatcher
 import network.retalert.domain.InboxRepository
 import network.retalert.domain.OutboxRepository
-import network.retalert.domain.PresetRepository
-import network.retalert.domain.RealClock
-import network.retalert.domain.randomHex
-import network.retalert.domain.Severity
-import network.retalert.domain.FanOut
+import network.retalert.reticulum.ReticulumEngine
 import javax.inject.Inject
 
 /** One interface chip on the Home status line. */
-data class IfaceChip(val name: String, val tier: String)
+data class IfaceChip(val name: String, val tier: String, val online: Boolean = true)
 
 /** One row in the Home status feed (recent sent + received). */
-data class FeedItem(val id: String, val line: String, val kind: String)
+data class FeedItem(val id: String, val line: String, val kind: String, val time: Double = 0.0)
 
 data class HomeUiState(
     val ownHash: String = "",
+    val meshStatus: String = "starting…",
     val interfaces: List<IfaceChip> = emptyList(),
     val feed: List<FeedItem> = emptyList(),
     val flash: String = "",
@@ -36,64 +35,69 @@ data class HomeUiState(
  *  delivery hash, and a status feed of recent sent/received alerts. */
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val presets: PresetRepository,
+    private val engine: ReticulumEngine,
+    private val dispatcher: AlertDispatcher,
     private val outbox: OutboxRepository,
     private val inbox: InboxRepository,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(
-        HomeUiState(
-            ownHash = randomHex(16),
-            interfaces = listOf(
-                IfaceChip("AutoInterface", "medium"),
-                IfaceChip("RNode", "low"),
-            ),
-        )
-    )
+    private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
-    init { refresh() }
+    init {
+        viewModelScope.launch {
+            engine.status.collect { s ->
+                _state.update {
+                    it.copy(
+                        ownHash = s.deliveryHash.takeIf { s.running }.orEmpty(),
+                        meshStatus = when {
+                            s.running && s.sharedInstance -> "attached to shared instance"
+                            s.running -> "mesh running"
+                            s.error.isNotEmpty() -> "mesh failed: ${s.error}"
+                            else -> "starting…"
+                        },
+                        interfaces = s.interfaces.map { i -> IfaceChip(i.name, i.tier, i.online) },
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            while (true) {
+                refresh()
+                delay(FEED_REFRESH_MS)
+            }
+        }
+    }
 
-    /** Fire the "default" preset (panic). Resolves the preset, builds an Alert,
-     *  enqueues it in the outbox, and surfaces the alert_id. */
+    /** Fire the panic alert ('default' preset, else every contact). */
     fun panic() {
         if (_state.value.firing) return
         _state.update { it.copy(firing = true, flash = "firing…") }
-        viewModelScope.launch {
-            val preset = presets.byName("default")
-            if (preset == null) {
-                _state.update { it.copy(firing = false, flash = "no preset to fire (configure one)") }
-                return@launch
-            }
-            val recipients = preset.recipients.ifEmpty { outbox.pending().flatMap { it.recipients }.distinct() }
-            val alert = Alert.new(
-                clock = RealClock,
-                severity = Severity.normalize(preset.severity),
-                text = preset.text,
-                recipients = preset.recipients,
-                payload = preset.payload,
-                retryInterval = preset.retryInterval,
-                maxAttempts = preset.maxAttempts,
-                fanOut = FanOut.normalize(preset.fanOut),
+        viewModelScope.launch(Dispatchers.IO) {
+            val flash = runCatching { dispatcher.panic() }.fold(
+                onSuccess = { (alert, target) -> "sent ${alert.alertId.take(8)}… to $target" },
+                onFailure = { "not sent: ${it.message}" },
             )
-            outbox.enqueue(alert)
-            _state.update {
-                it.copy(firing = false, flash = "sent alert ${alert.alertId.take(8)}…")
-            }
+            _state.update { it.copy(firing = false, flash = flash) }
             refresh()
         }
     }
 
     /** Refresh the status feed from the inbox + outbox. */
     fun refresh() {
-        viewModelScope.launch {
-            val sent = outbox.pending().map {
-                FeedItem(it.alertId, "[${it.severity}] ${it.text.take(60)}", "sent")
-            }
-            val received = inbox.list().map {
-                FeedItem(it.alertId, "[${it.severity}] ${it.text.take(60)}", "in")
-            }
-            _state.update { it.copy(feed = (sent + received).take(20)) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val feed = runCatching {
+                val sent = outbox.pending().map {
+                    FeedItem(it.alertId, "[${it.severity}] ${it.text.take(60)}", "sent", it.createdAt)
+                }
+                val received = inbox.list().map {
+                    FeedItem(it.alertId, "[${it.severity}] ${it.text.take(60)}", "in", it.receivedAt)
+                }
+                (sent + received).sortedByDescending { it.time }.take(20)
+            }.getOrDefault(emptyList())
+            _state.update { it.copy(feed = feed) }
         }
     }
+
+    private companion object { const val FEED_REFRESH_MS = 3000L }
 }
