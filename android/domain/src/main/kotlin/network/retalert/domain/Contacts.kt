@@ -28,6 +28,10 @@ class Settings(
     var autoInterface: Boolean = true,
     /** TCP client interfaces as "host:port" entries (e.g. a transport node). */
     var tcpInterfaces: MutableList<String> = mutableListOf(),
+    /** Attach to another app's shared RNS instance (Columba, Sideband…) on
+     *  127.0.0.1:[sharedInstancePort] when one is listening; else run standalone. */
+    var useSharedInstance: Boolean = true,
+    var sharedInstancePort: Int = DEFAULT_SHARED_INSTANCE_PORT,
     var autoAnnounce: Boolean = false,
     var announceInterval: Double = ANNOUNCE_MIN_INTERVAL,
 ) {
@@ -97,6 +101,9 @@ class Groups {
 
     fun clear() = groups.clear()
 }
+/** Default RNS shared-instance port (Reticulum `shared_instance_port`). */
+const val DEFAULT_SHARED_INSTANCE_PORT = 37428
+
 /** Parse "host:port" (IPv6 as "[addr]:port"). Returns the normalised spec or null. */
 fun normalizeTcpSpec(spec: String): String? = parseTcpSpec(spec)?.let { (h, p) ->
     if (':' in h) "[$h]:$p" else "$h:$p"

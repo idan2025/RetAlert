@@ -219,6 +219,8 @@ class RoomSettingsRepository(
         val distanceUnits: String = "km",
         val autoInterface: Boolean = true,
         val tcpInterfaces: List<String> = emptyList(),
+        val useSharedInstance: Boolean = true,
+        val sharedInstancePort: Int = network.retalert.domain.DEFAULT_SHARED_INSTANCE_PORT,
         val autoAnnounce: Boolean = false,
         val announceInterval: Double = network.retalert.domain.ANNOUNCE_MIN_INTERVAL,
     )
@@ -233,6 +235,8 @@ class RoomSettingsRepository(
             distanceUnits = s.distanceUnits,
             autoInterface = s.autoInterface,
             tcpInterfaces = s.tcpInterfaces.toMutableList(),
+            useSharedInstance = s.useSharedInstance,
+            sharedInstancePort = s.sharedInstancePort,
             autoAnnounce = s.autoAnnounce,
             announceInterval = s.announceInterval,
         )
@@ -246,6 +250,8 @@ class RoomSettingsRepository(
             distanceUnits = settings.distanceUnits,
             autoInterface = settings.autoInterface,
             tcpInterfaces = settings.tcpInterfaces.toList(),
+            useSharedInstance = settings.useSharedInstance,
+            sharedInstancePort = settings.sharedInstancePort,
             autoAnnounce = settings.autoAnnounce,
             announceInterval = settings.announceInterval,
         )

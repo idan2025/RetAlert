@@ -37,6 +37,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Process-restart trampoline (see AppRestarter). -->
+        <activity
+            android:name=".platform.PhoenixActivity"
+            android:exported="false"
+            android:process=":phoenix"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- Foreground mesh service (reticulum-kt stack lifecycle). -->
         <service
             android:name="network.retalert.reticulum.ReticulumService"

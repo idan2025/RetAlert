@@ -122,6 +122,7 @@ class LxmfRouterImpl(
         body: String,
         onDelivered: (() -> Unit)?,
         onFailed: (() -> Unit)?,
+        opportunistic: Boolean,
     ) {
         val r = router
         val src = deliveryDestination
@@ -156,11 +157,18 @@ class LxmfRouterImpl(
                     source = src,
                     content = body,
                     title = "",
-                    desiredMethod = DeliveryMethod.DIRECT,
+                    desiredMethod = if (opportunistic) DeliveryMethod.OPPORTUNISTIC else DeliveryMethod.DIRECT,
                 )
-                message.deliveryCallback = { onDelivered?.invoke() }
-                message.failedCallback = { onFailed?.invoke() }
+                message.deliveryCallback = {
+                    Log.i(TAG, "delivered to $recipientHex")
+                    onDelivered?.invoke()
+                }
+                message.failedCallback = {
+                    Log.w(TAG, "delivery to $recipientHex failed")
+                    onFailed?.invoke()
+                }
                 r.handleOutbound(message)
+                Log.i(TAG, "queued ${body.length}B to $recipientHex")
             }.onFailure {
                 Log.e(TAG, "sendMessage failed for $recipientHex", it)
                 onFailed?.invoke()

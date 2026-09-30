@@ -64,10 +64,53 @@ fun SettingsScreen(vm: SettingsViewModel = hiltViewModel()) {
             }
 
             SettingsCard {
+                Text("Shared instance", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Use the Reticulum instance another app on this phone shares (Columba, Sideband, MeshChat) " +
+                        "on 127.0.0.1 instead of running a separate stack. Enable instance sharing in that app.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                SwitchRow(
+                    "Connect to a shared instance",
+                    checked = state.useSharedInstance,
+                    onChange = vm::setUseSharedInstance,
+                )
+                var port by remember(state.sharedInstancePort) { mutableStateOf(state.sharedInstancePort.toString()) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = port,
+                        onValueChange = { port = it.filter(Char::isDigit).take(5) },
+                        label = { Text("port on 127.0.0.1") },
+                        modifier = Modifier.weight(1f).padding(end = 6.dp),
+                        singleLine = true,
+                        enabled = state.useSharedInstance,
+                    )
+                    OutlinedButton(
+                        onClick = { vm.setSharedInstancePort(port) },
+                        enabled = state.useSharedInstance && port != state.sharedInstancePort.toString(),
+                    ) { Text("Save") }
+                }
+                Text(
+                    when {
+                        state.restarting -> "reconnecting…"
+                        !state.meshRunning -> "mesh not running"
+                        state.sharedInstance -> "status: attached to shared instance"
+                        else -> "status: standalone (own interfaces below)"
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedButton(
+                    onClick = vm::reconnect,
+                    enabled = !state.restarting,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Reconnect") }
+            }
+
+            SettingsCard {
                 Text("Interfaces", style = MaterialTheme.typography.titleSmall)
                 if (state.sharedInstance) {
                     Text(
-                        "Attached to another app's shared Reticulum instance — it provides the interfaces. " +
+                        "Attached to a shared instance — it provides the interfaces. " +
                             "These apply when RetAlert runs its own stack.",
                         style = MaterialTheme.typography.bodySmall,
                     )

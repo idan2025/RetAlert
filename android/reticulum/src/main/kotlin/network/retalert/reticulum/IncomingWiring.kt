@@ -41,7 +41,7 @@ class IncomingWiring(
         tracks: LiveTrackStore,
     ): IncomingDispatcher {
         val sendAck: (alertId: String, sourceHex: String) -> Unit = { id, src ->
-            runCatching { lxmf.sendMessage(src, encodeAck(id)) }
+            sendControl(src, encodeAck(id))
         }
         val ackCb: (alertId: String, sourceHex: String) -> Unit = { id, src ->
             ackTracker.onAck(id, src)
@@ -73,6 +73,29 @@ class IncomingWiring(
 
     /** Receiver-side reply (ack + text) to an inbound alert. */
     fun sendReply(alertId: String, sourceHex: String, reply: String) {
-        runCatching { lxmf.sendMessage(sourceHex, encodeReply(alertId, reply)) }
+        sendControl(sourceHex, encodeReply(alertId, reply))
+    }
+
+    /** Receiver-side manual ack for an inbound alert. */
+    fun sendAck(alertId: String, sourceHex: String) {
+        sendControl(sourceHex, encodeAck(alertId))
+    }
+
+    /**
+     * Acks/replies are tiny, so they go opportunistically: one packet to the
+     * sender's LXMF delivery destination. Not over the link the alert arrived
+     * on — a Python LXMF sender only starts listening on that link a few
+     * seconds after its delivery completes, so an immediate backchannel ack is
+     * silently dropped. Falls back to a direct link if the packet fails.
+     */
+    private fun sendControl(destHex: String, body: String) {
+        runCatching {
+            lxmf.sendMessage(
+                recipientHex = destHex,
+                body = body,
+                onFailed = { runCatching { lxmf.sendMessage(destHex, body) } },
+                opportunistic = true,
+            )
+        }
     }
 }

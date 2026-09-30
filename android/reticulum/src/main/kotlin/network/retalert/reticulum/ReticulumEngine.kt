@@ -5,6 +5,7 @@ import android.net.wifi.WifiManager
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,7 +24,6 @@ import network.retalert.domain.RetryQueue
 import network.retalert.domain.Settings
 import network.retalert.domain.SettingsReceiveSettings
 import network.retalert.domain.TransportIntelligence
-import network.retalert.domain.encodeAck
 import network.retalert.domain.normalizeHash
 import network.retalert.domain.parseTcpSpec
 import network.retalert.reticulum.lxmf.LxmfRouter
@@ -45,7 +45,9 @@ data class EngineStatus(
     val running: Boolean = false,
     val starting: Boolean = false,
     val deliveryHash: String = "",
+    /** Attached as a client to another app's shared instance. */
     val sharedInstance: Boolean = false,
+    val sharedPort: Int = 0,
     val interfaces: List<InterfaceStatus> = emptyList(),
     val error: String = "",
 )
@@ -73,6 +75,7 @@ class ReticulumEngine(
     private val announceEngine: AnnounceEngine,
     val mediaChannel: network.retalert.domain.MediaChannel,
     private val incomingWiring: IncomingWiring,
+    private val rnsTransport: RnsTransport,
     private val outboxRepo: network.retalert.domain.OutboxRepository,
     private val starredRepo: network.retalert.domain.StarredRepository,
     private val settingsRepo: network.retalert.domain.SettingsRepository,
@@ -82,6 +85,9 @@ class ReticulumEngine(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val persistDispatcher = Dispatchers.IO.limitedParallelism(1)
     private val lock = Any()
+    /** Background loops of the current run; cancelled on stop so a restart
+     *  doesn't leave a second flusher/poller running. */
+    private val loops = mutableListOf<Job>()
     @Volatile private var running = false
     @Volatile private var sharedClient = false
 
@@ -114,7 +120,7 @@ class ReticulumEngine(
         try {
             val settings = settingsRepo.load()
             val identity = loadOrCreateIdentity()
-            startReticulum(identity)
+            startReticulum(identity, settings)
             if (!sharedClient) applyInterfaces(settings)
             // Announce handler -> Discover cache (LXMF delivery only).
             Transport.registerAnnounceHandler(RetAlertAnnounceHandler(discover), "lxmf.delivery")
@@ -130,7 +136,7 @@ class ReticulumEngine(
             startStatusPoller()
             // Announce now, and again once AutoInterface has had time to find peers.
             lxmf.announce()
-            scope.launch { delay(ANNOUNCE_SETTLE_MS); if (running) lxmf.announce() }
+            loops += scope.launch { delay(ANNOUNCE_SETTLE_MS); if (running) lxmf.announce() }
             if (settings.autoAnnounce) announceEngine.setAuto(true, settings.announceInterval)
             _status.update { it.copy(running = true, starting = false, deliveryHash = lxmf.deliveryHashHex, sharedInstance = sharedClient) }
             Log.i(TAG, "engine started; lxmf=${lxmf.deliveryHashHex} shared=$sharedClient")
@@ -152,6 +158,8 @@ class ReticulumEngine(
     /** Best-effort shutdown. */
     fun stop() {
         running = false
+        loops.toList().forEach { it.cancel() }
+        loops.clear()
         announceEngine.stop()
         runCatching { lxmf.stop() }
         synchronized(lock) {
@@ -159,6 +167,13 @@ class ReticulumEngine(
         }
         releaseMulticastLock()
         runCatching { Reticulum.stop() }
+        // Reticulum.stop() detaches the shared-instance client but leaves it in
+        // Transport's interface table; a later attach reuses the same name (so
+        // the same interface hash) and link traffic would be routed to the dead
+        // one. Drop every leftover so a restart starts from a clean table.
+        runCatching { Transport.getInterfaces().forEach { Transport.deregisterInterface(it) } }
+        // The old LXMF router's delivery callbacks will never fire now.
+        rnsTransport.clearInFlight()
         _status.value = EngineStatus()
     }
 
@@ -186,7 +201,7 @@ class ReticulumEngine(
 
     /** Receiver side: send an app-level ack for an inbound alert. */
     fun ack(alertId: String, sourceHex: String) {
-        lxmf.sendMessage(sourceHex, encodeAck(alertId))
+        incomingWiring.sendAck(alertId, sourceHex)
     }
 
     /** Receiver side: send a reply (ack + text) for an inbound alert. */
@@ -298,7 +313,7 @@ class ReticulumEngine(
     }
 
     private fun startRetryFlusher() {
-        scope.launch {
+        loops += scope.launch {
             while (running) {
                 runCatching { retryQueue.flush() }
                 delay(FLUSH_INTERVAL_MS)
@@ -307,7 +322,7 @@ class ReticulumEngine(
     }
 
     private fun startStatusPoller() {
-        scope.launch {
+        loops += scope.launch {
             while (running) {
                 refreshStatus()
                 delay(STATUS_INTERVAL_MS)
@@ -330,12 +345,14 @@ class ReticulumEngine(
         return id
     }
 
-    private fun startReticulum(identity: Identity) {
+    private fun startReticulum(identity: Identity, settings: Settings) {
         val configDir = File(context.filesDir, RNS_CONFIG_DIR).apply { mkdirs() }
-        // Attach to a host RNS instance (Sideband/Columba/MeshChat) when one is
-        // listening locally; otherwise run our own standalone stack. reticulum-kt
-        // needs both factories set before start() or the attach silently fails.
-        val hostRunning = shareInstance.attach()
+        // Attach to a host RNS instance (Columba/Sideband/MeshChat) when enabled
+        // and one is listening on localhost; otherwise run our own standalone
+        // stack. reticulum-kt needs both factories set before start() or the
+        // attach silently fails.
+        val port = settings.sharedInstancePort
+        val hostRunning = settings.useSharedInstance && shareInstance.attach(port)
         Reticulum.setLocalClientFactory { port, host ->
             LocalClientInterface(name = SHARED_NAME, tcpPort = port, tcpHost = host)
         }
@@ -346,12 +363,13 @@ class ReticulumEngine(
             configDir = configDir.absolutePath,
             enableTransport = false,
             shareInstance = false, // client-attach only; we never host for other apps
-            sharedInstancePort = Reticulum.DEFAULT_SHARED_INSTANCE_PORT,
+            sharedInstancePort = port,
             connectToSharedInstance = hostRunning,
             transportIdentity = identity,
         )
         sharedClient = rns.isConnectedToSharedInstance
-        Log.i(TAG, "startReticulum: hostRunning=$hostRunning shared=$sharedClient")
+        _status.update { it.copy(sharedPort = port) }
+        Log.i(TAG, "startReticulum: hostRunning=$hostRunning port=$port shared=$sharedClient")
     }
 
     companion object {

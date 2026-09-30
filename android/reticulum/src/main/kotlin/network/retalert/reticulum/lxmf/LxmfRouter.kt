@@ -30,6 +30,9 @@ interface LxmfRouter {
         body: String,
         onDelivered: (() -> Unit)? = null,
         onFailed: (() -> Unit)? = null,
+        /** Single-packet delivery straight to the peer's delivery destination
+         *  (no link). Right for small control messages such as acks. */
+        opportunistic: Boolean = false,
     )
 
     fun setIncomingCallback(cb: ((sourceHex: String, text: String, timestamp: Double) -> Unit)?)
@@ -53,6 +56,7 @@ class StubLxmfRouter(
         body: String,
         onDelivered: (() -> Unit)?,
         onFailed: (() -> Unit)?,
+        opportunistic: Boolean,
     ) {
         warn("sendMessage -> $recipientHex (${body.length} bytes); LXMF-kt not wired")
         // No transport available: report failure so AckTracker marks the

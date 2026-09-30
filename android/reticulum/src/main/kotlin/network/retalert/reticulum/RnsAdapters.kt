@@ -75,6 +75,9 @@ class RnsTransport(
         return false
     }
 
+    /** Forget every pending send (the LXMF router they belong to was stopped). */
+    fun clearInFlight() = inFlight.clear()
+
     /** Send [alert] to [recipientHex] (destination hash hex, with or without colons). */
     fun send(alert: Alert, recipientHex: String) {
         val hash = recipientHex.replace(":", "").lowercase()

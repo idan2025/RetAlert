@@ -2,7 +2,10 @@ package network.retalert.app.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import android.content.Context
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import network.retalert.app.platform.AppRestarter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,6 +15,7 @@ import kotlinx.coroutines.launch
 import network.retalert.domain.ANNOUNCE_MIN_INTERVAL
 import network.retalert.domain.ANNOUNCE_PRESETS
 import network.retalert.domain.ANNOUNCE_PRESET_VALUES
+import network.retalert.domain.DEFAULT_SHARED_INSTANCE_PORT
 import network.retalert.domain.HardwareKeyManager
 import network.retalert.domain.KeyCombo
 import network.retalert.domain.KeyComboRepository
@@ -29,7 +33,12 @@ data class SettingsUiState(
     val deny: List<String> = emptyList(),
     val autoInterface: Boolean = true,
     val tcpInterfaces: List<String> = emptyList(),
+    val useSharedInstance: Boolean = true,
+    val sharedInstancePort: Int = DEFAULT_SHARED_INSTANCE_PORT,
+    /** Currently attached as a client to another app's instance. */
     val sharedInstance: Boolean = false,
+    val meshRunning: Boolean = false,
+    val restarting: Boolean = false,
     val autoAnnounce: Boolean = false,
     val announceInterval: Double = ANNOUNCE_MIN_INTERVAL,
     val keyCombos: List<KeyCombo> = emptyList(),
@@ -48,6 +57,7 @@ class SettingsViewModel @Inject constructor(
     private val keyCombos: KeyComboRepository,
     private val hardwareKeys: HardwareKeyManager,
     private val engine: ReticulumEngine,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -60,7 +70,9 @@ class SettingsViewModel @Inject constructor(
             _state.update { it.copy(keyCombos = keyCombos.list()) }
         }
         viewModelScope.launch {
-            engine.status.collect { st -> _state.update { it.copy(sharedInstance = st.sharedInstance) } }
+            engine.status.collect { st ->
+                _state.update { it.copy(sharedInstance = st.sharedInstance, meshRunning = st.running) }
+            }
         }
     }
 
@@ -72,6 +84,8 @@ class SettingsViewModel @Inject constructor(
             deny = s.denylist.sorted(),
             autoInterface = s.autoInterface,
             tcpInterfaces = s.tcpInterfaces.toList(),
+            useSharedInstance = s.useSharedInstance,
+            sharedInstancePort = s.sharedInstancePort,
             autoAnnounce = s.autoAnnounce,
             announceInterval = s.announceInterval,
             flash = flash ?: it.flash,
@@ -130,6 +144,41 @@ class SettingsViewModel @Inject constructor(
         settingsRepo.save(s)
         runCatching { engine.reloadInterfaces() }
         publish(s, "TCP interface $spec removed")
+    }
+
+    // -- shared instance (Columba, Sideband, MeshChat …) --------------------
+
+    /** Use (or stop using) another app's shared instance; reconnects the stack. */
+    fun setUseSharedInstance(enabled: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        val s = settingsRepo.load()
+        s.useSharedInstance = enabled
+        settingsRepo.save(s)
+        publish(s)
+        restartMesh()
+    }
+
+    fun setSharedInstancePort(port: String) = viewModelScope.launch(Dispatchers.IO) {
+        val p = port.trim().toIntOrNull()?.takeIf { it in 1..65535 }
+        if (p == null) {
+            _state.update { it.copy(flash = "invalid port") }
+            return@launch
+        }
+        val s = settingsRepo.load()
+        s.sharedInstancePort = p
+        settingsRepo.save(s)
+        publish(s)
+        restartMesh()
+    }
+
+    /** Reconnect: re-probes for a shared instance (e.g. Columba started after
+     *  RetAlert) or falls back to standalone. */
+    fun reconnect() = viewModelScope.launch(Dispatchers.IO) { restartMesh() }
+
+    /** Connection-mode changes need a fresh process (see [AppRestarter]).
+     *  Pending alerts are replayed from the outbox after the restart. */
+    private fun restartMesh() {
+        _state.update { it.copy(restarting = true, flash = "restarting RetAlert…") }
+        AppRestarter.restart(appContext)
     }
 
     // -- announce ----------------------------------------------------------
