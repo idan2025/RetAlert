@@ -1,8 +1,14 @@
 # RetAlert
 
-[![CI](https://github.com/idan2025/RetAlert/actions/workflows/ci.yml/badge.svg)](https://github.com/idan2025/RetAlert/actions/workflows/ci.yml)
-[![Android APK](https://github.com/idan2025/RetAlert/actions/workflows/android.yml/badge.svg)](https://github.com/idan2025/RetAlert/actions/workflows/android.yml)
-[![Desktop build](https://github.com/idan2025/RetAlert/actions/workflows/desktop.yml/badge.svg)](https://github.com/idan2025/RetAlert/actions/workflows/desktop.yml)
+[![android-kt](https://github.com/idan2025/RetAlert/actions/workflows/android-kt.yml/badge.svg)](https://github.com/idan2025/RetAlert/actions/workflows/android-kt.yml)
+
+> **Note:** The Python+Kivy implementation has been superseded by a native
+> Kotlin/Compose/Material3 Android rewrite (Phases 0–5 complete; the Python
+> tree was removed in Phase 6 but is retained in git history as the parity
+> reference). See the *Android native rewrite* section of
+> [`PROMPT.md`](PROMPT.md) for the current architecture, build, and dependency
+> details. The sections below describe the historical Python app and are kept
+> for reference.
 
 Reticulum + LXMF emergency-alert app. Panic button (UI + hardware-key mapping),
 transport-aware failover (prioritize fastest interface, never start a heavy
@@ -11,8 +17,7 @@ tracking with a map screen, audio/photo channels over a raw RNS link, and
 standalone or shared-instance operation (Sideband / Columba / MeshChat /
 MeshChatX). Android + Linux desktop first, iOS later.
 
-Full design spec: [`PROMPT.md`](PROMPT.md). Architecture map:
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Full design spec: [`PROMPT.md`](PROMPT.md).
 
 ## Get the app
 - **Android:** download `retalert-*.apk` from the [latest release](../../releases),
@@ -203,14 +208,12 @@ GitHub Actions, under [`.github/workflows`](.github/workflows):
 
 | Workflow | Trigger | Builds |
 |----------|---------|--------|
-| `ci.yml` | every push / PR | pytest (3.11–3.13) + sdist/wheel |
-| `android.yml` | push / PR | APK via Buildozer — **only when `buildozer.spec` exists** |
-| `desktop.yml` | push / PR | Linux PyInstaller binary — **only when `main.py` exists** |
-| `release.yml` | tag `v*` | full GitHub Release: Python dist always, APK + desktop binary if present |
+| `android-kt.yml` | push / PR on `android/**` | Gradle `:app:assembleDebug` (JDK 21, SDK 36) |
 
-The app builds are gated to app-code changes. Cut a release with
-`git tag v0.1.0 && git push --tags`. To ship a **signed** release APK, set up a
-keystore once — see [`docs/ANDROID_SIGNING.md`](docs/ANDROID_SIGNING.md)
+(The historical `ci.yml` / `android.yml` / `desktop.yml` / `release.yml`
+Python/Buildozer/PyInstaller workflows were removed with the Python tree in
+Phase 6.) To ship a **signed** release APK, set up a keystore once — see
+[`docs/ANDROID_SIGNING.md`](docs/ANDROID_SIGNING.md)
 (`scripts/make-keystore.sh` + four repo secrets); without it the release APK is
 built unsigned.
 
