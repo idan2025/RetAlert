@@ -2,32 +2,36 @@
 
 package network.retalert.app.ui.nav
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.Outbox
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -43,20 +47,21 @@ import network.retalert.app.ui.presets.PresetsScreen
 import network.retalert.app.ui.send.SendScreen
 import network.retalert.app.ui.settings.SettingsScreen
 
-/** The 8 top-level screens, in bottom-nav order. */
-enum class RetDest(
-    val route: String,
-    val label: String,
-    val icon: ImageVector,
-) {
-    Home("home", "Home", Icons.Filled.Speed),
-    Send("send", "Send", Icons.Filled.Send),
-    Inbox("inbox", "Inbox", Icons.Filled.Inbox),
-    Outbox("outbox", "Outbox", Icons.Filled.Call),
-    Presets("presets", "Presets", Icons.Filled.Apps),
+/** Bottom-nav tabs. */
+enum class RetDest(val route: String, val label: String, val icon: ImageVector) {
+    Home("home", "Home", Icons.Filled.Home),
     Map("map", "Map", Icons.Filled.Map),
+    Inbox("inbox", "Inbox", Icons.Filled.Inbox),
     Contacts("contacts", "Contacts", Icons.Filled.People),
-    Settings("settings", "Settings", Icons.Filled.Settings),
+    More("more", "More", Icons.Filled.MoreHoriz),
+}
+
+/** Screens reached from More (and from shortcuts on Home). */
+enum class SubDest(val route: String, val label: String, val subtitle: String, val icon: ImageVector) {
+    Send("send", "Send alert", "Write a custom alert to a contact or group", Icons.AutoMirrored.Filled.Send),
+    Outbox("outbox", "Sent alerts", "Delivery and acknowledgement status", Icons.Filled.Outbox),
+    Presets("presets", "Presets", "Saved alerts, including what Panic sends", Icons.Filled.Apps),
+    Settings("settings", "Settings", "Connection, location sharing, alerts, triggers", Icons.Filled.Settings),
 }
 
 @Composable
@@ -67,8 +72,12 @@ private fun isWide() = LocalConfiguration.current.screenWidthDp >= 600
 fun RetAlertApp() {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
-    val current = backStack?.destination
+    val route = backStack?.destination?.route
+    // Sub-screens highlight the More tab.
+    val selectedTab = RetDest.entries.firstOrNull { it.route == route }
+        ?: if (SubDest.entries.any { it.route == route }) RetDest.More else RetDest.Home
     val wide = isWide()
+    val back: () -> Unit = { nav.popBackStack() }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -76,14 +85,11 @@ fun RetAlertApp() {
             if (!wide) {
                 NavigationBar {
                     RetDest.entries.forEach { d ->
-                        val selected = current?.hierarchy?.any { it.route == d.route } == true
                         NavigationBarItem(
-                            selected = selected,
-                            onClick = { nav.navigateTo(d) },
+                            selected = d == selectedTab,
+                            onClick = { nav.navigateTab(d) },
                             icon = { Icon(d.icon, contentDescription = d.label) },
                             label = { Text(d.label, maxLines = 1) },
-                            // 8 destinations: labels for all of them truncate on phones.
-                            alwaysShowLabel = false,
                         )
                     }
                 }
@@ -92,24 +98,29 @@ fun RetAlertApp() {
     ) { inner ->
         val host: @Composable (Modifier) -> Unit = { mod ->
             NavHost(navController = nav, startDestination = RetDest.Home.route, modifier = mod) {
-                composable(RetDest.Home.route) { HomeScreen() }
-                composable(RetDest.Send.route) { SendScreen() }
-                composable(RetDest.Inbox.route) { InboxScreen() }
-                composable(RetDest.Outbox.route) { OutboxScreen() }
-                composable(RetDest.Presets.route) { PresetsScreen() }
+                composable(RetDest.Home.route) {
+                    HomeScreen(
+                        onCustomAlert = { nav.navigate(SubDest.Send.route) },
+                        onOpenMap = { nav.navigateTab(RetDest.Map) },
+                    )
+                }
                 composable(RetDest.Map.route) { MapScreen() }
+                composable(RetDest.Inbox.route) { InboxScreen(onShowOnMap = { nav.navigateTab(RetDest.Map) }) }
                 composable(RetDest.Contacts.route) { ContactsScreen() }
-                composable(RetDest.Settings.route) { SettingsScreen() }
+                composable(RetDest.More.route) { MoreScreen(onOpen = { nav.navigate(it.route) }) }
+                composable(SubDest.Send.route) { SendScreen(onBack = back) }
+                composable(SubDest.Outbox.route) { OutboxScreen(onBack = back) }
+                composable(SubDest.Presets.route) { PresetsScreen(onBack = back) }
+                composable(SubDest.Settings.route) { SettingsScreen(onBack = back) }
             }
         }
         if (wide) {
             Row(Modifier.fillMaxSize().padding(inner)) {
                 NavigationRail {
                     RetDest.entries.forEach { d ->
-                        val selected = current?.hierarchy?.any { it.route == d.route } == true
                         NavigationRailItem(
-                            selected = selected,
-                            onClick = { nav.navigateTo(d) },
+                            selected = d == selectedTab,
+                            onClick = { nav.navigateTab(d) },
                             icon = { Icon(d.icon, contentDescription = d.label) },
                             label = { Text(d.label) },
                         )
@@ -123,7 +134,23 @@ fun RetAlertApp() {
     }
 }
 
-private fun NavHostController.navigateTo(d: RetDest) {
+@Composable
+private fun MoreScreen(onOpen: (SubDest) -> Unit) {
+    Scaffold(topBar = { TopAppBar(title = { Text("More") }) }) { inner ->
+        Column(Modifier.padding(inner)) {
+            SubDest.entries.forEach { d ->
+                ListItem(
+                    headlineContent = { Text(d.label) },
+                    supportingContent = { Text(d.subtitle) },
+                    leadingContent = { Icon(d.icon, contentDescription = null) },
+                    modifier = Modifier.clickable { onOpen(d) },
+                )
+            }
+        }
+    }
+}
+
+private fun NavHostController.navigateTab(d: RetDest) {
     navigate(d.route) {
         popUpTo(graph.findStartDestination().route!!) { saveState = true }
         launchSingleTop = true

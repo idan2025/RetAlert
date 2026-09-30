@@ -19,6 +19,7 @@ import network.retalert.domain.DEFAULT_SHARED_INSTANCE_PORT
 import network.retalert.domain.HardwareKeyManager
 import network.retalert.domain.KeyCombo
 import network.retalert.domain.KeyComboRepository
+import network.retalert.domain.PresetRepository
 import network.retalert.domain.Settings
 import network.retalert.domain.SettingsRepository
 import network.retalert.domain.clampAnnounceInterval
@@ -39,6 +40,12 @@ data class SettingsUiState(
     val sharedInstance: Boolean = false,
     val meshRunning: Boolean = false,
     val restarting: Boolean = false,
+    val panicShareLocation: Boolean = true,
+    val liveShareIntervalS: Double = 15.0,
+    val liveShareMinutes: Int = 60,
+    val presetNames: List<String> = emptyList(),
+    val ownHash: String = "",
+    val version: String = "",
     val autoAnnounce: Boolean = false,
     val announceInterval: Double = ANNOUNCE_MIN_INTERVAL,
     val keyCombos: List<KeyCombo> = emptyList(),
@@ -58,6 +65,7 @@ class SettingsViewModel @Inject constructor(
     private val hardwareKeys: HardwareKeyManager,
     private val engine: ReticulumEngine,
     @ApplicationContext private val appContext: Context,
+    private val presets: PresetRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -67,11 +75,19 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             val s = settingsRepo.load()
             publish(s)
-            _state.update { it.copy(keyCombos = keyCombos.list()) }
+            _state.update {
+                it.copy(
+                    keyCombos = keyCombos.list(),
+                    presetNames = runCatching { presets.list().map { p -> p.name } }.getOrDefault(emptyList()),
+                    version = runCatching {
+                        appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName
+                    }.getOrNull().orEmpty(),
+                )
+            }
         }
         viewModelScope.launch {
             engine.status.collect { st ->
-                _state.update { it.copy(sharedInstance = st.sharedInstance, meshRunning = st.running) }
+                _state.update { it.copy(sharedInstance = st.sharedInstance, meshRunning = st.running, ownHash = st.deliveryHash) }
             }
         }
     }
@@ -85,6 +101,9 @@ class SettingsViewModel @Inject constructor(
             autoInterface = s.autoInterface,
             tcpInterfaces = s.tcpInterfaces.toList(),
             useSharedInstance = s.useSharedInstance,
+            panicShareLocation = s.panicShareLocation,
+            liveShareIntervalS = s.liveShareIntervalS,
+            liveShareMinutes = s.liveShareMinutes,
             sharedInstancePort = s.sharedInstancePort,
             autoAnnounce = s.autoAnnounce,
             announceInterval = s.announceInterval,
@@ -115,6 +134,12 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun forget(hash: String) = mutate { it.forget(hash); null }
+
+    // -- emergency location sharing ------------------------------------------
+
+    fun setPanicShareLocation(v: Boolean) = mutate { it.panicShareLocation = v; null }
+    fun setLiveShareInterval(seconds: Double) = mutate { it.liveShareIntervalS = seconds; null }
+    fun setLiveShareMinutes(minutes: Int) = mutate { it.liveShareMinutes = minutes; null }
 
     // -- interfaces (applied to the running stack immediately) -------------
 

@@ -32,6 +32,12 @@ class Settings(
      *  127.0.0.1:[sharedInstancePort] when one is listening; else run standalone. */
     var useSharedInstance: Boolean = true,
     var sharedInstancePort: Int = DEFAULT_SHARED_INSTANCE_PORT,
+    /** Panic (no 'default' preset) also starts live location sharing. */
+    var panicShareLocation: Boolean = true,
+    /** Seconds between live location updates (over LoRa the throttle wins). */
+    var liveShareIntervalS: Double = 15.0,
+    /** How long an emergency live share runs before stopping by itself. */
+    var liveShareMinutes: Int = 60,
     var autoAnnounce: Boolean = false,
     var announceInterval: Double = ANNOUNCE_MIN_INTERVAL,
 ) {

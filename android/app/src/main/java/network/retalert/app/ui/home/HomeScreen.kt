@@ -19,6 +19,11 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -50,7 +55,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 
 @Composable
-fun HomeScreen(vm: HomeViewModel = hiltViewModel()) {
+fun HomeScreen(
+    onCustomAlert: () -> Unit = {},
+    onOpenMap: () -> Unit = {},
+    vm: HomeViewModel = hiltViewModel(),
+) {
     val state by vm.state.collectAsStateWithLifecycle()
     Scaffold(
         topBar = { TopAppBar(title = { Text("RetAlert") }) },
@@ -90,6 +99,33 @@ fun HomeScreen(vm: HomeViewModel = hiltViewModel()) {
 
             if (state.flash.isNotEmpty()) {
                 Text(state.flash, style = MaterialTheme.typography.bodyMedium)
+            }
+
+            if (state.share.active) {
+                Card(
+                    Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Sharing your live location", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Text("with ${state.share.recipients.size} contact(s) · ${state.share.updatesSent} updates sent", style = MaterialTheme.typography.bodySmall)
+                            if (state.share.problem.isNotEmpty()) {
+                                Text(state.share.problem, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        TextButton(onClick = onOpenMap) { Text("Map") }
+                        Button(
+                            onClick = vm::stopSharing,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        ) { Text("Stop") }
+                    }
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onCustomAlert, modifier = Modifier.weight(1f)) { Text("Custom alert") }
+                OutlinedButton(onClick = onOpenMap, modifier = Modifier.weight(1f)) { Text("Share location") }
             }
 
             Text("Status feed", style = MaterialTheme.typography.titleSmall)

@@ -9,8 +9,13 @@ data class LiveTrack(
 )
 
 /** Thread-safe store of live-sharing peers + the followed source. Parity. */
-class LiveTrackStore(private val clock: Clock = RealClock) {
+class LiveTrackStore(
+    private val clock: Clock = RealClock,
+    /** Fixes kept per peer for drawing their trail. */
+    private val historySize: Int = 200,
+) {
     private val tracks = LinkedHashMap<String, LiveTrack>()
+    private val history = HashMap<String, ArrayDeque<Fix>>()
     @Volatile private var followed: String? = null
     private val lock = Any()
 
@@ -20,6 +25,12 @@ class LiveTrackStore(private val clock: Clock = RealClock) {
         val name = displayName.ifBlank { existing?.displayName ?: "" }
         val track = LiveTrack(h, fix, name, clock.nowEpoch())
         tracks[h] = track
+        val trail = history.getOrPut(h) { ArrayDeque() }
+        val last = trail.lastOrNull()
+        if (last == null || last.lat != fix.lat || last.lon != fix.lon) {
+            trail.addLast(fix)
+            while (trail.size > historySize) trail.removeFirst()
+        }
         track
     }
 
@@ -29,15 +40,21 @@ class LiveTrackStore(private val clock: Clock = RealClock) {
 
     fun list(): List<LiveTrack> = synchronized(lock) { tracks.values.toList() }
 
+    /** A peer's recent fixes, oldest first (for drawing a trail). */
+    fun trail(sourceHash: String): List<Fix> = synchronized(lock) {
+        history[sourceHash.lowercase().trim()]?.toList() ?: emptyList()
+    }
+
     fun remove(sourceHash: String): Boolean = synchronized(lock) {
         val h = sourceHash.lowercase().trim()
         val existed = tracks.remove(h) != null
+        history.remove(h)
         if (followed == h) followed = null
         existed
     }
 
     fun clear(): Int = synchronized(lock) {
-        val n = tracks.size; tracks.clear(); followed = null; n
+        val n = tracks.size; tracks.clear(); history.clear(); followed = null; n
     }
 
     /** Follow a peer's live track. Returns false if peer not currently sharing. */
@@ -60,6 +77,7 @@ class LiveTrackStore(private val clock: Clock = RealClock) {
         val stale = tracks.entries.filter { it.value.lastUpdated < cutoff }.map { it.key }
         for (h in stale) {
             tracks.remove(h)
+            history.remove(h)
             if (followed == h) followed = null
         }
         stale.size

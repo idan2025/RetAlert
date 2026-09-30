@@ -20,6 +20,9 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.Switch
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,15 +30,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import network.retalert.app.ui.common.BackButton
 import network.retalert.domain.Severity
 
 @Composable
-fun SendScreen(vm: SendViewModel = hiltViewModel()) {
+fun SendScreen(onBack: (() -> Unit)? = null, vm: SendViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.refreshSuggestions() }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Send alert") }) },
+        topBar = { TopAppBar(title = { Text("Send alert") }, navigationIcon = { BackButton(onBack) }) },
     ) { inner ->
         Column(
             Modifier.fillMaxSize().padding(inner).verticalScroll(rememberScrollState()).padding(16.dp),
@@ -74,6 +78,14 @@ fun SendScreen(vm: SendViewModel = hiltViewModel()) {
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 3,
             )
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Share my live location", style = MaterialTheme.typography.bodyLarge)
+                    Text("Keeps sending your position to the recipients", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = state.shareLive, onCheckedChange = vm::onShareLive)
+            }
 
             Button(
                 onClick = vm::send,

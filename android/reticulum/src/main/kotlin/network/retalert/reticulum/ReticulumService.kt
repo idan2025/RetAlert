@@ -34,6 +34,7 @@ class ReticulumService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_LOCATION) locationMode = intent.getBooleanExtra(EXTRA_ENABLED, false)
         startForegroundCompat()
         // Engine start does disk + socket I/O; never on the main thread.
         if (!engine.isRunning) {
@@ -62,7 +63,7 @@ class ReticulumService : Service() {
 
     private fun buildNotification(): Notification = NotificationCompat.Builder(this, CHANNEL_ID)
         .setContentTitle("RetAlert")
-        .setContentText("Listening for alerts on the mesh")
+        .setContentText(if (locationMode) "Sharing your live location" else "Listening for alerts on the mesh")
         .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
         .setOngoing(true)
         .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -71,15 +72,33 @@ class ReticulumService : Service() {
     private fun startForegroundCompat() {
         val n = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            val base = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            val withLocation = base or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            // The location type needs the location permission and, from the
+            // background, may be refused; fall back to the mesh-only type.
+            val ok = locationMode && runCatching { startForeground(NOTIFICATION_ID, n, withLocation) }.isSuccess
+            if (!ok) startForeground(NOTIFICATION_ID, n, base)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Claim the location type only while sharing (the manifest declares it).
+            val type = if (locationMode) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
+            runCatching { startForeground(NOTIFICATION_ID, n, type) }
+                .onFailure { startForeground(NOTIFICATION_ID, n, 0) }
         } else {
             startForeground(NOTIFICATION_ID, n)
         }
     }
 
-    private companion object {
-        const val TAG = "RetAlert/Service"
-        const val CHANNEL_ID = "retalert-service"
-        const val NOTIFICATION_ID = 0x7E7
+    companion object {
+        /** While true the service also carries the `location` type so live
+         *  location sharing keeps working with the screen off. Process-wide, so
+         *  a recreated service instance keeps it. */
+        @Volatile private var locationMode = false
+
+        /** Start with this action + [EXTRA_ENABLED] to toggle location mode. */
+        const val ACTION_LOCATION = "network.retalert.action.LOCATION_MODE"
+        const val EXTRA_ENABLED = "enabled"
+        private const val TAG = "RetAlert/Service"
+        private const val CHANNEL_ID = "retalert-service"
+        private const val NOTIFICATION_ID = 0x7E7
     }
 }

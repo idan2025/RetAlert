@@ -221,6 +221,9 @@ class RoomSettingsRepository(
         val tcpInterfaces: List<String> = emptyList(),
         val useSharedInstance: Boolean = true,
         val sharedInstancePort: Int = network.retalert.domain.DEFAULT_SHARED_INSTANCE_PORT,
+        val panicShareLocation: Boolean = true,
+        val liveShareIntervalS: Double = 15.0,
+        val liveShareMinutes: Int = 60,
         val autoAnnounce: Boolean = false,
         val announceInterval: Double = network.retalert.domain.ANNOUNCE_MIN_INTERVAL,
     )
@@ -237,6 +240,9 @@ class RoomSettingsRepository(
             tcpInterfaces = s.tcpInterfaces.toMutableList(),
             useSharedInstance = s.useSharedInstance,
             sharedInstancePort = s.sharedInstancePort,
+            panicShareLocation = s.panicShareLocation,
+            liveShareIntervalS = s.liveShareIntervalS,
+            liveShareMinutes = s.liveShareMinutes,
             autoAnnounce = s.autoAnnounce,
             announceInterval = s.announceInterval,
         )
@@ -252,6 +258,9 @@ class RoomSettingsRepository(
             tcpInterfaces = settings.tcpInterfaces.toList(),
             useSharedInstance = settings.useSharedInstance,
             sharedInstancePort = settings.sharedInstancePort,
+            panicShareLocation = settings.panicShareLocation,
+            liveShareIntervalS = settings.liveShareIntervalS,
+            liveShareMinutes = settings.liveShareMinutes,
             autoAnnounce = settings.autoAnnounce,
             announceInterval = settings.announceInterval,
         )

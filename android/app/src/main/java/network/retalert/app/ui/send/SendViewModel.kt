@@ -22,6 +22,8 @@ data class SendUiState(
     val target: String = "",
     val flash: String = "",
     val sending: Boolean = false,
+    /** Follow the alert with live location to the same recipients. */
+    val shareLive: Boolean = false,
     /** Quick-pick targets: contact names then group names. */
     val suggestions: List<String> = emptyList(),
 )
@@ -54,6 +56,7 @@ class SendViewModel @Inject constructor(
     fun onText(v: String) = _state.update { it.copy(text = v) }
     fun onSeverity(v: String) = _state.update { it.copy(severity = v) }
     fun onTarget(v: String) = _state.update { it.copy(target = v) }
+    fun onShareLive(v: Boolean) = _state.update { it.copy(shareLive = v) }
 
     /** Resolve [target] to a list of destination hashes.
      *  Contact name → its hash; group name → members; else raw hex. */
@@ -78,12 +81,16 @@ class SendViewModel @Inject constructor(
                 require(recipients.isNotEmpty()) {
                     "unknown recipient: use a contact or group name, or a 32-character hash"
                 }
-                dispatcher.send(s.severity, s.text, recipients)
+                dispatcher.send(s.severity, s.text, recipients, s.shareLive)
             }
             _state.update {
                 result.fold(
                     onSuccess = { a ->
-                        it.copy(sending = false, text = "", flash = "queued ${a.alertId.take(8)}… for ${a.recipients.size} recipient(s) — see Outbox")
+                        it.copy(
+                            sending = false, text = "",
+                            flash = "queued for ${a.recipients.size} recipient(s)" +
+                                (if (s.shareLive) ", sharing live location" else "") + " — see Sent alerts",
+                        )
                     },
                     onFailure = { e -> it.copy(sending = false, flash = "not sent: ${e.message}") },
                 )

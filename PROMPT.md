@@ -503,3 +503,30 @@ rejects. Fixed along with the pieces that made the app a no-op on the mesh:
 
 Still open: media Link establishment, sending live `geo:` shares to peers
 (Map "Live GPS" only updates own position), an in-app updater UI.
+
+### Location sharing, map, shared instance (later pass)
+- **Emergency location**: `LocationSharer` (app singleton) sends `geo:` fixes
+  (`encodeGeoBody`, same format the Python app parsed) to alert recipients as
+  single opportunistic packets. Presets choose No / Once (`gps_oneshot`) /
+  Live (`gps_live`); Panic without a `default` preset shares live per
+  Settings (`panicShareLocation`, interval, duration). Over LoRa-only links the
+  interval stretches to the preset's LoRa throttle. While sharing, the mesh
+  service adds the `location` FGS type; the active share is persisted and
+  resumed if the process is killed. Background ("all the time") location is
+  offered in Settings for screen-off hardware triggers.
+- **Map**: full-screen osmdroid; blue own dot (MyLocationNewOverlay), named peer
+  markers that grey out after 5 min, trails (`LiveTrackStore.trail`), people
+  panel with distance/bearing/last-seen, tap-to-follow, manual "share my
+  location" to chosen contacts, offline tiles + manual location in a menu.
+- **Shared instance**: Settings toggle + port + Reconnect. Changing the mode
+  restarts the app process (`AppRestarter`) — restarting reticulum-kt/LXMF-kt
+  in-process left LXMF outbound wedged.
+- **Delivery**: alerts ≤200 B and acks/replies go opportunistic (one packet,
+  no link; acks sent over the inbound link were dropped by Python LXMF
+  senders). Longer alerts use a link.
+- **Nav**: Home / Map / Inbox / Contacts / More (Send, Sent alerts, Presets,
+  Settings). Settings grouped into Emergency location, Connection, Announce,
+  Incoming alerts, Hardware trigger (tap-to-record), Display, About.
+- Verified on an API 35 emulator against Python `rnsd` + LXMF 1.2 on the host
+  (`adb reverse tcp:37428`): attach, alert + ack both ways, panic + live
+  location, trail on the map, share resume after SIGKILL.

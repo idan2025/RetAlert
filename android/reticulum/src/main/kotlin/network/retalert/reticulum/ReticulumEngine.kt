@@ -192,6 +192,33 @@ class ReticulumEngine(
         return normalized
     }
 
+    /**
+     * Send one live-location body to each recipient: a single opportunistic
+     * packet apiece. No retries — the next fix supersedes a lost one. Recipients
+     * without a path get a path request instead and are covered next tick.
+     * Returns how many were handed to LXMF.
+     */
+    fun sendGeo(recipients: List<String>, body: String): Int {
+        if (!running) return 0
+        var sent = 0
+        for (r in recipients) {
+            val h = normalizeHash(r) ?: continue
+            val bytes = h.hexToByteArray()
+            if (!Transport.hasPath(bytes)) {
+                runCatching { Transport.requestPath(bytes) }
+                continue
+            }
+            lxmf.sendMessage(h, body, opportunistic = true)
+            sent++
+        }
+        return sent
+    }
+
+    /** True when every online interface is LoRa-class (live shares must throttle). */
+    val loraOnly: Boolean
+        get() = _status.value.interfaces.filter { it.online }
+            .let { up -> up.isNotEmpty() && up.all { it.tier == network.retalert.domain.Tiers.LOW } }
+
     /** Stop retrying an outgoing alert and delete it from the outbox. */
     fun cancelAlert(alertId: String) {
         retryQueue.remove(alertId)

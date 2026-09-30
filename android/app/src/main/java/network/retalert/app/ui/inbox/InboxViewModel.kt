@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import network.retalert.domain.ContactRepository
 import network.retalert.domain.InboxRepository
+import network.retalert.domain.LiveTrackStore
 import network.retalert.reticulum.ReticulumEngine
 import javax.inject.Inject
 
@@ -25,6 +26,8 @@ data class InboxRow(
     val sourceName: String,
     val severity: String,
     val text: String,
+    /** The sender is sharing a location we can show on the map. */
+    val hasLocation: Boolean = false,
 )
 
 /** Inbox screen: received alerts list, reply (canned/text) + manual ack by
@@ -34,6 +37,7 @@ class InboxViewModel @Inject constructor(
     private val inbox: InboxRepository,
     private val contacts: ContactRepository,
     private val engine: ReticulumEngine,
+    private val tracks: LiveTrackStore,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(InboxUiState())
@@ -45,7 +49,10 @@ class InboxViewModel @Inject constructor(
         val rows = runCatching {
             val names = contacts.list().associate { it.hash to it.name }
             inbox.list().map { e ->
-                InboxRow(e.alertId, e.sourceHash, names[e.sourceHash].orEmpty(), e.severity, e.text)
+                InboxRow(
+                    e.alertId, e.sourceHash, names[e.sourceHash].orEmpty(), e.severity, e.text,
+                    hasLocation = tracks.get(e.sourceHash) != null,
+                )
             }
         }.getOrDefault(emptyList())
         _state.update { it.copy(entries = rows) }
@@ -64,6 +71,9 @@ class InboxViewModel @Inject constructor(
             .fold({ if (text.isBlank()) "replied to ${row.alertId.take(8)}…" else "replied: $text" }, { "reply failed: ${it.message}" })
         _state.update { it.copy(flash = flash) }
     }
+
+    /** Follow the sender on the map. Returns false if they share no location. */
+    fun showOnMap(row: InboxRow): Boolean = tracks.follow(row.sourceHash)
 
     fun remove(row: InboxRow) = viewModelScope.launch(Dispatchers.IO) {
         runCatching { inbox.remove(row.alertId) }

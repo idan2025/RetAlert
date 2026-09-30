@@ -27,11 +27,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
+import network.retalert.app.ui.common.BackButton
 import network.retalert.domain.AckState
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun OutboxScreen(vm: OutboxViewModel = hiltViewModel()) {
+fun OutboxScreen(onBack: (() -> Unit)? = null, vm: OutboxViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     // Delivery/ack states change from the mesh thread; poll while visible.
     LaunchedEffect(Unit) {
@@ -39,7 +40,7 @@ fun OutboxScreen(vm: OutboxViewModel = hiltViewModel()) {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Outbox") }, actions = {
+        topBar = { TopAppBar(title = { Text("Sent alerts") }, navigationIcon = { BackButton(onBack) }, actions = {
             androidx.compose.material3.TextButton(onClick = { vm.refresh() }) { Text("Refresh") }
         }) },
     ) { inner ->

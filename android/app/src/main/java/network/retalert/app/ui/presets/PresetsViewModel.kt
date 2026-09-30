@@ -21,6 +21,10 @@ import network.retalert.domain.clampLoraThrottle
 import network.retalert.domain.normalizeHash
 import javax.inject.Inject
 
+const val LOCATION_NONE = "none"
+const val LOCATION_ONCE = "once"
+const val LOCATION_LIVE = "live"
+
 data class PresetRow(
     val id: String,
     val name: String,
@@ -64,7 +68,7 @@ class PresetsViewModel @Inject constructor(
 
     /** Create (or replace, by name) a preset. [targets] is a comma-separated list of
      *  contact names and/or hashes, or a single group name. */
-    fun create(name: String, severity: String, text: String, targets: String) = viewModelScope.launch(Dispatchers.IO) {
+    fun create(name: String, severity: String, text: String, targets: String, location: String = LOCATION_NONE) = viewModelScope.launch(Dispatchers.IO) {
         val result = runCatching {
             val n = name.trim()
             require(n.isNotEmpty()) { "name required" }
@@ -85,7 +89,11 @@ class PresetsViewModel @Inject constructor(
                     text = text.trim(),
                     recipients = recipients,
                     group = group,
-                    payload = existing?.payload ?: mapOf("text" to true),
+                    payload = mapOf(
+                        "text" to true,
+                        "gps_oneshot" to (location == LOCATION_ONCE),
+                        "gps_live" to (location == LOCATION_LIVE),
+                    ),
                     loraThrottle = existing?.loraThrottle,
                 ),
             )

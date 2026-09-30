@@ -103,6 +103,9 @@ class RnsTransport(
         lxmf.sendMessage(
             recipientHex = hash,
             body = body,
+            // Alerts that fit one packet skip link setup (much faster, esp. over
+            // LoRa); longer ones go over a link. RetryQueue covers failures.
+            opportunistic = body.toByteArray().size <= OPPORTUNISTIC_MAX_BYTES,
             onDelivered = {
                 inFlight.remove(k)
                 ackTracker.onDelivered(alert.alertId, recipientHex)
@@ -117,6 +120,8 @@ class RnsTransport(
     private companion object {
         const val TAG = "RetAlert/Transport"
         const val IN_FLIGHT_TIMEOUT_MS = 5 * 60_000L
+        /** Conservative single-packet LXMF content budget (encrypted packet MDU is ~295 B). */
+        const val OPPORTUNISTIC_MAX_BYTES = 200
     }
 }
 

@@ -36,6 +36,20 @@ data class Fix(
     val geoUri: String get() = "geo:$lat,$lon"
 }
 
+/** Live-share message body, the format `parseGeoBody` (and the Python app) read:
+ *  `geo:lat,lon acc=.. alt=.. src=..`. Absent fields are omitted. */
+fun encodeGeoBody(fix: Fix): String = buildString {
+    append("geo:%.6f,%.6f".format(java.util.Locale.ROOT, fix.lat, fix.lon))
+    fix.accuracy?.let { append(" acc=%.0f".format(java.util.Locale.ROOT, it)) }
+    fix.altitude?.let { append(" alt=%.0f".format(java.util.Locale.ROOT, it)) }
+    append(" src=").append(fix.source.ifBlank { "unknown" }.replace(' ', '_'))
+}
+
+/** Live-share cadence: [preferredS] normally, but never faster than the LoRa
+ *  throttle when the best available interface is LoRa-class. */
+fun liveShareInterval(preferredS: Double, loraOnly: Boolean, loraThrottleS: Double?): Double =
+    if (loraOnly) max(preferredS, clampLoraThrottle(loraThrottleS)) else max(5.0, preferredS)
+
 /** Base class. ``getFix`` returns a Fix or null if unavailable. */
 interface FixSource {
     val name: String

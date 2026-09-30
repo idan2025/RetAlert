@@ -35,7 +35,7 @@ import kotlinx.coroutines.delay
 private val CANNED_REPLIES = listOf("Acknowledged", "On my way", "Cannot help", "Stand by")
 
 @Composable
-fun InboxScreen(vm: InboxViewModel = hiltViewModel()) {
+fun InboxScreen(onShowOnMap: () -> Unit = {}, vm: InboxViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     var replyFor by remember { mutableStateOf<InboxRow?>(null) }
 
@@ -73,6 +73,9 @@ fun InboxScreen(vm: InboxViewModel = hiltViewModel()) {
                                 Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     OutlinedButton(onClick = { vm.ackAlert(e) }) { Text("Ack") }
                                     OutlinedButton(onClick = { replyFor = e }) { Text("Reply") }
+                                    if (e.hasLocation) {
+                                        TextButton(onClick = { if (vm.showOnMap(e)) onShowOnMap() }) { Text("Map") }
+                                    }
                                     TextButton(onClick = { vm.remove(e) }) { Text("Dismiss") }
                                 }
                             }

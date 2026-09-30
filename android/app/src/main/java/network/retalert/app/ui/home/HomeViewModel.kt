@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import network.retalert.app.platform.AlertDispatcher
+import network.retalert.app.platform.LocationSharer
+import network.retalert.app.platform.ShareState
 import network.retalert.domain.InboxRepository
 import network.retalert.domain.OutboxRepository
 import network.retalert.reticulum.ReticulumEngine
@@ -29,6 +31,7 @@ data class HomeUiState(
     val feed: List<FeedItem> = emptyList(),
     val flash: String = "",
     val firing: Boolean = false,
+    val share: ShareState = ShareState(),
 )
 
 /** Home screen: panic button (hold-to-confirm), live interface chips, own
@@ -39,6 +42,7 @@ class HomeViewModel @Inject constructor(
     private val dispatcher: AlertDispatcher,
     private val outbox: OutboxRepository,
     private val inbox: InboxRepository,
+    private val sharer: LocationSharer,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -61,6 +65,7 @@ class HomeViewModel @Inject constructor(
                 }
             }
         }
+        viewModelScope.launch { sharer.state.collect { s -> _state.update { it.copy(share = s) } } }
         viewModelScope.launch {
             while (true) {
                 refresh()
@@ -82,6 +87,8 @@ class HomeViewModel @Inject constructor(
             refresh()
         }
     }
+
+    fun stopSharing() = sharer.stop()
 
     /** Refresh the status feed from the inbox + outbox. */
     fun refresh() {
