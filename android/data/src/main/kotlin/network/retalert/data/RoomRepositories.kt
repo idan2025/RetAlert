@@ -238,6 +238,10 @@ class RoomSettingsRepository(
         val autoAnnounce: Boolean = false,
         val announceInterval: Double = network.retalert.domain.ANNOUNCE_MIN_INTERVAL,
         val alarmOverrideSilent: Boolean = true,
+        // Older snapshots have no sound: they get the built-in siren.
+        val alarmSound: String = network.retalert.domain.AlarmSound.DEFAULT,
+        val alarmSoundName: String = "",
+        val alarmVolumePercent: Int = network.retalert.domain.AlarmSound.DEFAULT_VOLUME_PERCENT,
     )
 
     override fun load(): Settings {
@@ -260,6 +264,9 @@ class RoomSettingsRepository(
             autoAnnounce = s.autoAnnounce,
             announceInterval = s.announceInterval,
             alarmOverrideSilent = s.alarmOverrideSilent,
+            alarmSound = network.retalert.domain.AlarmSound.normalize(s.alarmSound),
+            alarmSoundName = s.alarmSoundName,
+            alarmVolumePercent = s.alarmVolumePercent.coerceIn(10, 100),
         )
     }
 
@@ -278,6 +285,9 @@ class RoomSettingsRepository(
             autoAnnounce = settings.autoAnnounce,
             announceInterval = settings.announceInterval,
             alarmOverrideSilent = settings.alarmOverrideSilent,
+            alarmSound = settings.alarmSound,
+            alarmSoundName = settings.alarmSoundName,
+            alarmVolumePercent = settings.alarmVolumePercent,
         )
         dao.upsert(SettingsEntity(1, json.encodeToString(Snapshot.serializer(), s)))
     }
