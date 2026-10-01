@@ -154,6 +154,7 @@ class RoomRepositoryTests {
         migrated.alertPopup = false
         migrated.alarmVibrate = false
         migrated.alarmMinutes = 10
+        migrated.displayName = "Idan's phone"
         repo.save(migrated)
         val loaded = repo.load()
         assertEquals(3, loaded.interfaces.size)
@@ -166,6 +167,7 @@ class RoomRepositoryTests {
         assertTrue(loaded.alertLockScreen)
         assertFalse(loaded.alarmVibrate)
         assertEquals(10, loaded.alarmMinutes)
+        assertEquals("Idan's phone", loaded.displayName)
     }
 
     @Test fun starred_star_unstar() {

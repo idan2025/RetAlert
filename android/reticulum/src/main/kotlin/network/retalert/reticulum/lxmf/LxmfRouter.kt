@@ -25,6 +25,10 @@ interface LxmfRouter {
     fun start()
     fun stop()
     fun announce()
+
+    /** Name carried in announces ([register] uses it; later calls update the
+     *  announce data in place). Blank: announce without a name. */
+    fun setDisplayName(name: String)
     fun sendMessage(
         recipientHex: String,
         body: String,
@@ -53,6 +57,7 @@ class StubLxmfRouter(
     override fun start() { warn("start") }
     override fun stop() { warn("stop") }
     override fun announce() { warn("announce") }
+    override fun setDisplayName(name: String) { warn("setDisplayName") }
 
     override fun sendMessage(
         recipientHex: String,

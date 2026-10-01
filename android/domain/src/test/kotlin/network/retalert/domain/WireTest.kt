@@ -58,6 +58,13 @@ class WireTest {
         assertEquals(encodeGeoBody(fix), Wire.geo(fix, legacy = true).content)
     }
 
+    @Test fun `announce display name app data is what LXMF readers expect`() {
+        // LxmfRouterImpl.setDisplayName packs [name bytes, nil] like LXMRouter.packAnnounceAppData.
+        val appData = MsgPack.pack(listOf("Idan's phone 🚨".toByteArray(), null))
+        assertEquals(0x92, appData[0].toInt() and 0xff)   // fixarray(2): LXMF's display_name_from_app_data path
+        assertEquals("Idan's phone 🚨", decodeDisplayName(appData, ASPECT_LXMF_DELIVERY))
+    }
+
     @Test fun `old-format and plain messages pass through untouched`() {
         val old = encodeAlert("danger", "legacy", "id9")
         assertEquals(old, Wire.toInternal(old, emptyMap()))

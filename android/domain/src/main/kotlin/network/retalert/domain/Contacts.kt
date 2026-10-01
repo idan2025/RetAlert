@@ -58,6 +58,9 @@ class Settings(
     /** Send the pre-0.4 `!RETALERT!` text format, for RetAlert 0.3 and older
      *  and the Python app. Off: readable text + LXMF fields (see [Wire]). */
     var legacyWire: Boolean = false,
+    /** Public name in LXMF announces — what Columba, Sideband and MeshChat
+     *  show instead of "Peer 12F0930E". Empty: no name. */
+    var displayName: String = "",
 ) {
     /** Set distance units, normalising to km|mi. */
     fun applyDistanceUnits(units: String) { distanceUnits = if (units == "mi") "mi" else "km" }

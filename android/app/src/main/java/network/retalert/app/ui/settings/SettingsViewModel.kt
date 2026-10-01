@@ -62,6 +62,7 @@ data class SettingsUiState(
     val alarmVibrate: Boolean = true,
     val alarmMinutes: Int = AlarmSound.DEFAULT_RING_MINUTES,
     val legacyWire: Boolean = false,
+    val displayName: String = "",
     val flash: String = "",
 )
 
@@ -123,6 +124,7 @@ class SettingsViewModel @Inject constructor(
             alarmVibrate = s.alarmVibrate,
             alarmMinutes = s.alarmMinutes,
             legacyWire = s.legacyWire,
+            displayName = s.displayName,
             useSharedInstance = s.useSharedInstance,
             panicShareLocation = s.panicShareLocation,
             liveShareIntervalS = s.liveShareIntervalS,
@@ -179,6 +181,16 @@ class SettingsViewModel @Inject constructor(
     fun setAlertPopup(v: Boolean) = mutate { it.alertPopup = v; null }
     fun setAlertLockScreen(v: Boolean) = mutate { it.alertLockScreen = v; null }
     fun setAlarmVibrate(v: Boolean) = mutate { it.alarmVibrate = v; null }
+    /** Save the public name and announce it now. */
+    fun setDisplayName(name: String) = viewModelScope.launch(Dispatchers.IO) {
+        val n = name.trim().take(MAX_NAME)
+        val s = settingsRepo.load()
+        s.displayName = n
+        settingsRepo.save(s)
+        runCatching { engine.setDisplayName(n) }
+        publish(s, if (n.isEmpty()) "Name cleared" else "Others now see you as \"$n\"")
+    }
+
     fun setLegacyWire(v: Boolean) = mutate { it.legacyWire = v; null }
     fun setAlarmMinutes(minutes: Int) = mutate { it.alarmMinutes = minutes.coerceIn(1, 60); null }
     fun stopPreview() = alarmPlayer.stopPreview()
@@ -293,4 +305,6 @@ class SettingsViewModel @Inject constructor(
 
     fun announcePresets() = ANNOUNCE_PRESET_VALUES
     fun announceLabels() = ANNOUNCE_PRESETS
+
+    private companion object { const val MAX_NAME = 40 }
 }

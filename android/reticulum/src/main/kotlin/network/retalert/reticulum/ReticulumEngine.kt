@@ -135,6 +135,7 @@ class ReticulumEngine(
             starredRepo.starred().forEach { discover.star(it) }
             // LXMF router + inbound routing. The dispatcher is rebuilt per message
             // so contact / allow / deny edits apply immediately.
+            lxmf.setDisplayName(settings.displayName)
             lxmf.register()
             lxmf.setIncomingCallback { src, text, ts -> handleIncoming(src, text, ts) }
             lxmf.start()
@@ -246,6 +247,13 @@ class ReticulumEngine(
     /** Receiver side: send a reply (ack + text) for an inbound alert. */
     fun reply(alertId: String, sourceHex: String, text: String) {
         incomingWiring.sendReply(alertId, sourceHex, text)
+    }
+
+    /** Change the public name and announce it right away, so other apps
+     *  pick it up without waiting for the next announce. */
+    fun setDisplayName(name: String) {
+        lxmf.setDisplayName(name)
+        if (running) lxmf.announce()
     }
 
     /** Manual one-shot announce. */
