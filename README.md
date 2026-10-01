@@ -23,14 +23,15 @@ Download `app-release.apk` from the [latest release](../../releases), allow
   tap-to-follow, offline map download.
 - **Delivery tracking**: per-recipient sent / delivered / acked / replied;
   receivers ack or reply from the Inbox.
-- **Alerts ring like an alarm**: full volume on the alarm stream with
-  vibration, through silent / vibrate mode and Do Not Disturb, over the lock
-  screen, until you stop them. The listener restarts after a reboot. Settings
+- **Alerts ring like an alarm**: on the alarm stream with vibration, through
+  silent / vibrate mode and Do Not Disturb, over the lock screen, until you
+  stop them. Pick the sound (six built-in tones, any phone sound or audio
+  file) and the volume. The listener restarts after a reboot. Settings
   has a checklist (notifications, DND access, battery) and a test alarm.
 - **Interfaces screen**: AutoInterface (LAN), TCP client and server, UDP,
-  **RNode** LoRa over Bluetooth, **Meshtastic** nodes (Bluetooth or Wi-Fi),
-  Bluetooth LE mesh and I2P — or a **shared instance** from Columba, Sideband
-  or MeshChat on the same phone.
+  **RNode** LoRa (Bluetooth or USB), **Meshtastic** nodes (Bluetooth, Wi-Fi
+  or USB), Bluetooth LE mesh and I2P — or a **shared instance** from Columba,
+  Sideband or MeshChat on the same phone. USB needs an OTG cable.
 - **RNS over Meshtastic**: a native port of
   [RNS_Over_Meshtastic](https://github.com/landandair/RNS_Over_Meshtastic),
   wire-compatible with its Python interface. Put it on a private secondary
