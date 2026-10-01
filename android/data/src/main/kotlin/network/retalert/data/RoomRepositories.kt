@@ -247,6 +247,7 @@ class RoomSettingsRepository(
         val alarmVibrate: Boolean = true,
         val alarmMinutes: Int = network.retalert.domain.AlarmSound.DEFAULT_RING_MINUTES,
         val legacyWire: Boolean = false,
+        val displayName: String = "",
     )
 
     override fun load(): Settings {
@@ -277,6 +278,7 @@ class RoomSettingsRepository(
             alarmVibrate = s.alarmVibrate,
             alarmMinutes = s.alarmMinutes.coerceIn(1, 60),
             legacyWire = s.legacyWire,
+            displayName = s.displayName,
         )
     }
 
@@ -303,6 +305,7 @@ class RoomSettingsRepository(
             alarmVibrate = settings.alarmVibrate,
             alarmMinutes = settings.alarmMinutes,
             legacyWire = settings.legacyWire,
+            displayName = settings.displayName,
         )
         dao.upsert(SettingsEntity(1, json.encodeToString(Snapshot.serializer(), s)))
     }

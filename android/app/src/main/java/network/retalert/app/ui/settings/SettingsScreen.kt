@@ -106,6 +106,7 @@ fun SettingsScreen(
             Modifier.fillMaxSize().padding(inner).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            IdentitySection(state, vm)
             AlarmSection(state, vm)
             EmergencySection(state, vm)
             ConnectionSection(state, vm, onOpenInterfaces)
@@ -125,6 +126,31 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+/** The name other apps show for this phone instead of "Peer 12F0930E". */
+@Composable
+private fun IdentitySection(state: SettingsUiState, vm: SettingsViewModel) = Section(
+    "Your name",
+    "What Columba, Sideband, MeshChat and other RetAlert phones show for you.",
+) {
+    var name by remember(state.displayName) { mutableStateOf(state.displayName) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it.take(40) },
+            label = { Text("Name") },
+            placeholder = { Text("e.g. Idan") },
+            singleLine = true,
+            modifier = Modifier.weight(1f).padding(end = 8.dp),
+        )
+        OutlinedButton(onClick = { vm.setDisplayName(name) }, enabled = name.trim() != state.displayName) { Text("Save") }
+    }
+    Text(
+        if (state.displayName.isBlank()) "No name set — others see a code like \"Peer ${state.ownHash.take(8).uppercase().ifEmpty { "12F0930E" }}\"."
+        else "Saving announces the new name right away.",
+        style = MaterialTheme.typography.bodySmall,
+    )
 }
 
 @Composable

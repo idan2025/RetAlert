@@ -2,6 +2,8 @@
 
 package network.retalert.reticulum.lxmf
 
+import network.retalert.domain.MsgPack
+
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
@@ -89,7 +91,7 @@ class LxmfRouterImpl(
 
             val dest = r.registerDeliveryIdentity(
                 identity = identity,
-                displayName = null,
+                displayName = displayName.ifBlank { null },
                 stampCost = null,
             )
             router = r
@@ -113,6 +115,17 @@ class LxmfRouterImpl(
     override fun stop() {
         runCatching { router?.stop() }
             .onFailure { Log.w(TAG, "LXMF stop failed", it) }
+    }
+
+    @Volatile private var displayName: String = ""
+
+    override fun setDisplayName(name: String) {
+        displayName = name.trim()
+        // LXMF announce app data: msgpack [name as bin | nil, stamp cost | nil],
+        // as LXMRouter.packAnnounceAppData writes it (no stamp cost here).
+        val appData = MsgPack.pack(listOf(displayName.ifBlank { null }?.toByteArray(Charsets.UTF_8), null))
+        runCatching { deliveryDestination?.setDefaultAppData(appData) }
+            .onFailure { Log.w(TAG, "could not update display name", it) }
     }
 
     override fun announce() {
