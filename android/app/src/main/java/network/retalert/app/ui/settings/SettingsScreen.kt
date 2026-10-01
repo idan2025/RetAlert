@@ -108,6 +108,7 @@ fun SettingsScreen(
         ) {
             IdentitySection(state, vm)
             AlarmSection(state, vm)
+            QuickRepliesSection(state, vm)
             EmergencySection(state, vm)
             ConnectionSection(state, vm, onOpenInterfaces)
             AnnounceSection(state, vm)
@@ -126,6 +127,36 @@ fun SettingsScreen(
             }
         }
     }
+}
+
+/** One-tap answers on the alert pop-up, notification and Inbox. */
+@Composable
+private fun QuickRepliesSection(state: SettingsUiState, vm: SettingsViewModel) = Section(
+    "Quick replies",
+    "One tap on an incoming alert sends one of these back to the sender.",
+) {
+    val items = remember(state.quickReplies) { mutableStateListOf(*state.quickReplies.toTypedArray()) }
+    items.forEachIndexed { i, text ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { items[i] = it.take(network.retalert.domain.MAX_QUICK_REPLY_LEN) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { items.removeAt(i) }, enabled = items.size > 1) { Icon(Icons.Filled.Close, "Remove") }
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (items.size < network.retalert.domain.MAX_QUICK_REPLIES) {
+            OutlinedButton(onClick = { items.add("") }) { Text("Add") }
+        }
+        OutlinedButton(
+            onClick = { vm.setQuickReplies(items.toList()) },
+            enabled = items.toList() != state.quickReplies,
+        ) { Text("Save") }
+    }
+    Text("The notification shows the first two (three when it isn't ringing).", style = MaterialTheme.typography.bodySmall)
 }
 
 /** The name other apps show for this phone instead of "Peer 12F0930E". */

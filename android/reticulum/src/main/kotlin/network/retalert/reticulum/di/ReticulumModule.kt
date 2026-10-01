@@ -95,7 +95,14 @@ object ReticulumModule {
         inbox: network.retalert.domain.InboxRepository,
         notifier: IncomingNotifier,
         settings: network.retalert.domain.SettingsRepository,
-    ): IncomingWiring = IncomingWiring(ackTracker, lxmf, inbox, notifier) { runCatching { settings.load().legacyWire }.getOrDefault(false) }
+        chat: network.retalert.domain.ChatRepository,
+        outbox: network.retalert.domain.OutboxRepository,
+    ): IncomingWiring = IncomingWiring(
+        ackTracker, lxmf, inbox, notifier,
+        legacyWire = { runCatching { settings.load().legacyWire }.getOrDefault(false) },
+        chat = chat,
+        outbox = outbox,
+    )
 
     @Provides @Singleton
     fun provideReticulumEngine(

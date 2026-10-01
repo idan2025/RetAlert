@@ -91,6 +91,12 @@ object Wire {
         if (legacy) LxmfOut(encodeReply(alertId, text))
         else LxmfOut(text, data(mapOf("k" to "reply", "id" to alertId)))
 
+    /** A message in an alert's chat thread: plain text for other apps,
+     *  tagged with the alert for RetAlert. Legacy: just the text. */
+    fun chat(alertId: String, text: String, legacy: Boolean): LxmfOut =
+        if (legacy) LxmfOut(text)
+        else LxmfOut(text, data(mapOf("k" to "chat", "id" to alertId)))
+
     /** Live / one-shot location. [expiresAtMs] tells Columba when sharing ends. */
     fun geo(fix: Fix, legacy: Boolean, expiresAtMs: Long? = null): LxmfOut {
         if (legacy) return LxmfOut(encodeGeoBody(fix))
@@ -122,6 +128,7 @@ object Wire {
                 }
                 "ack" -> if (id.isNotEmpty()) return encodeAck(id)
                 "reply" -> if (id.isNotEmpty()) return encodeReply(id, content)
+                "chat" -> if (id.isNotEmpty()) return encodeChat(id, content)
             }
         }
         if (content.isBlank()) {

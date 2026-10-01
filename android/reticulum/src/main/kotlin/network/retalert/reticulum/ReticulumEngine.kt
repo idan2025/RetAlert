@@ -11,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import network.retalert.domain.AckState
@@ -34,6 +35,7 @@ import network.reticulum.identity.Identity
 import network.reticulum.interfaces.Interface
 import network.reticulum.interfaces.InterfaceAdapter
 import network.reticulum.interfaces.local.LocalClientInterface
+import network.reticulum.interfaces.tcp.TCPServerInterface
 import network.reticulum.transport.Transport
 import java.io.File
 
@@ -98,6 +100,10 @@ class ReticulumEngine(
     private val ownInterfaces = LinkedHashMap<String, Pair<IfaceConfig, Interface>>()
     private val ifaceErrors = LinkedHashMap<String, String>()
     private val ifaceStartedAt = HashMap<String, Long>()
+    /** Per interface: announces each time its link comes (back) up. */
+    private val ifaceWatchers = HashMap<String, Job>()
+    @Volatile private var startedAtMs = 0L
+    @Volatile private var lastLinkAnnounceMs = 0L
     private val factory = InterfaceFactory(context)
     private var transportIdentityHash = ByteArray(16)
     private var multicastLock: WifiManager.MulticastLock? = null
@@ -115,6 +121,10 @@ class ReticulumEngine(
         ackTracker.onStateChange = { id, r, state ->
             scope.launch(persistDispatcher) { runCatching { outboxRepo.setAckState(id, r, state) } }
         }
+        // Same lane, so the reply lands after the REPLIED state row exists.
+        ackTracker.onReply = { id, r, text ->
+            scope.launch(persistDispatcher) { runCatching { outboxRepo.setReply(id, r, text) } }
+        }
     }
 
     /** Bring up RNS, identity, interfaces, LXMF router, announce handler, retry flusher. Blocking. */
@@ -129,6 +139,7 @@ class ReticulumEngine(
             val identity = loadOrCreateIdentity()
             transportIdentityHash = identity.hash
             startReticulum(identity, settings)
+            startedAtMs = System.currentTimeMillis()
             if (!sharedClient) applyInterfaces(settings)
             // Announce handler -> Discover cache (LXMF delivery only).
             Transport.registerAnnounceHandler(RetAlertAnnounceHandler(discover), "lxmf.delivery")
@@ -249,6 +260,9 @@ class ReticulumEngine(
         incomingWiring.sendReply(alertId, sourceHex, text)
     }
 
+    /** Send a message into an alert's chat thread. Returns how many peers it went to. */
+    fun sendChat(alertId: String, text: String): Int = incomingWiring.sendChat(alertId, text)
+
     /** Change the public name and announce it right away, so other apps
      *  pick it up without waiting for the next announce. */
     fun setDisplayName(name: String) {
@@ -305,6 +319,7 @@ class ReticulumEngine(
                     ownInterfaces[id] = cfg to it
                     ifaceStartedAt[id] = System.currentTimeMillis()
                     ifaceErrors.remove(id)
+                    ifaceWatchers[id] = announceWhenOnline(it)
                 }
                 .onFailure {
                     Log.w(TAG, "interface ${cfg.name} failed to start", it)
@@ -316,8 +331,36 @@ class ReticulumEngine(
         _status.update { it.copy(ifaceErrors = ifaceErrors.toMap()) }
     }
 
+    /**
+     * A link that has just come up (a new interface, a TCP client that finally
+     * connected, a reconnect) hasn't carried our announce yet, so nobody behind
+     * it can route to us until the next one — and automatic announcing is off
+     * by default. Announce shortly after each time it goes online.
+     */
+    private fun announceWhenOnline(iface: Interface): Job = scope.launch {
+        iface.online.collectLatest { up ->
+            if (!up) return@collectLatest
+            delay(LINK_ANNOUNCE_DELAY_MS)
+            val now = System.currentTimeMillis()
+            // Startup announces by itself; several links coming up together share one announce.
+            if (!running || now - startedAtMs < ANNOUNCE_SETTLE_MS || now - lastLinkAnnounceMs < LINK_ANNOUNCE_GAP_MS) {
+                return@collectLatest
+            }
+            lastLinkAnnounceMs = now
+            Log.i(TAG, "announcing: ${iface.name} came online")
+            runCatching { lxmf.announce() }
+        }
+    }
+
     private fun createInterface(c: IfaceConfig): Interface {
         val iface = factory.create(c, transportIdentityHash)
+        if (iface is TCPServerInterface) {
+            // Each connection is its own interface. Transport must know it, or a
+            // path learned through it reads as dangling and is culled within
+            // seconds, so nothing can be sent to whoever connected.
+            iface.onClientConnected = { Transport.registerInterface(InterfaceAdapter.getOrCreate(it)) }
+            iface.onClientDisconnected = { runCatching { Transport.deregisterInterface(InterfaceAdapter.getOrCreate(it)) } }
+        }
         try {
             iface.start()
         } catch (e: Exception) {
@@ -332,6 +375,7 @@ class ReticulumEngine(
     private fun detachInterface(id: String) {
         val (_, iface) = ownInterfaces.remove(id) ?: return
         ifaceStartedAt.remove(id)
+        ifaceWatchers.remove(id)?.cancel()
         runCatching { Transport.deregisterInterface(InterfaceAdapter.getOrCreate(iface)) }
         runCatching { iface.detach() }
         Log.i(TAG, "interface down: ${iface.name}")
@@ -467,6 +511,9 @@ class ReticulumEngine(
         private const val STATUS_INTERVAL_MS = 3000L
         private const val ANNOUNCE_SETTLE_MS = 15_000L
         private const val IFACE_RETRY_MS = 30_000L
+        /** Lets a link that just came up settle before announcing on it. */
+        private const val LINK_ANNOUNCE_DELAY_MS = 3_000L
+        private const val LINK_ANNOUNCE_GAP_MS = 10_000L
         /** RNode detect + radio init takes a few seconds before it reports online. */
         private const val IFACE_SETTLE_MS = 20_000L
         /** Types whose link can drop and must be rebuilt (TCP clients reconnect by themselves). */

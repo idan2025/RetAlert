@@ -6,6 +6,16 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class AckTrackerTest {
+
+    @Test fun `a reply is reported with its text, a plain ack is not`() {
+        val t = AckTracker()
+        val replies = mutableListOf<Triple<String, String, String>>()
+        t.onReply = { id, r, text -> replies += Triple(id, r, text) }
+        t.track(Alert(alertId = "a1", recipients = listOf("r1", "r2")))
+        t.onAck("a1", "r1")
+        t.onAck("a1", "r2", "On my way")
+        assertEquals(listOf(Triple("a1", "r2", "On my way")), replies)
+    }
     private val clock = FakeClock(epoch = 1000.0)
     private val ack = AckTracker(clock)
 

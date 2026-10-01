@@ -95,6 +95,17 @@ class RoomRepositoryTests {
         assertEquals(1, repo.clear())
     }
 
+    @Test fun outbox_reply_text_survives_later_state_changes() {
+        val repo = RoomOutboxRepository(db.outboxDao())
+        repo.enqueue(Alert(alertId = "q1", recipients = listOf("aa"), payload = mapOf("text" to true)))
+        repo.setAckState("q1", "aa", "replied")
+        repo.setReply("q1", "AA", "On my way")
+        assertEquals(mapOf("aa" to "On my way"), repo.replies("q1"))
+        repo.setAckState("q1", "aa", "acked")            // a later ack must not erase it
+        assertEquals("On my way", repo.replies("q1")["aa"])
+        assertEquals("acked", repo.ackStates("q1")["aa"])
+    }
+
     @Test fun outbox_enqueue_pending_ackStates() {
         val repo = RoomOutboxRepository(db.outboxDao())
         val alert = Alert(alertId = "x1", recipients = listOf("r1", "r2"), payload = mapOf("text" to true))
@@ -144,6 +155,7 @@ class RoomRepositoryTests {
         assertEquals(50, migrated.alarmVolumePercent)
         assertTrue(migrated.alertPopup && migrated.alertLockScreen && migrated.alarmVibrate)
         assertEquals(3, migrated.alarmMinutes)
+        assertEquals(listOf("On my way", "Can't come", "Call me"), migrated.quickReplies)
 
         val rnode = IfaceConfig("r1", IfaceType.RNODE, "LoRa", params = defaultParams(IfaceType.RNODE) + (IfaceParam.BT_ADDRESS to "AA:BB:CC:DD:EE:FF"))
         assertEquals(null, migrated.upsertInterface(rnode))
@@ -155,6 +167,7 @@ class RoomRepositoryTests {
         migrated.alarmVibrate = false
         migrated.alarmMinutes = 10
         migrated.displayName = "Idan's phone"
+        migrated.quickReplies = mutableListOf("Coming", "Busy")
         repo.save(migrated)
         val loaded = repo.load()
         assertEquals(3, loaded.interfaces.size)
@@ -168,6 +181,30 @@ class RoomRepositoryTests {
         assertFalse(loaded.alarmVibrate)
         assertEquals(10, loaded.alarmMinutes)
         assertEquals("Idan's phone", loaded.displayName)
+        assertEquals(listOf("Coming", "Busy"), loaded.quickReplies)
+    }
+
+    @Test fun chat_thread_add_state_and_observe() {
+        val chatDb = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(), ChatDatabase::class.java,
+        ).allowMainThreadQueries().build()
+        val repo = RoomChatRepository(chatDb.chatDao())
+        val changes = mutableListOf<String>()
+        val sub = repo.observe { changes += it }
+        val id = repo.add(network.retalert.domain.ChatMessage(alertId = "a1", peer = "AA", outgoing = true, text = "Coming", ts = 2.0, state = "sending", batch = 5))
+        repo.add(network.retalert.domain.ChatMessage(alertId = "a1", peer = "aa", outgoing = false, text = "Ok", ts = 3.0, state = "received"))
+        repo.add(network.retalert.domain.ChatMessage(alertId = "other", peer = "bb", outgoing = false, text = "x", ts = 1.0, state = "received"))
+        repo.setState(id, "delivered")
+        val t = repo.thread("a1")
+        assertEquals(listOf("Coming", "Ok"), t.map { it.text })
+        assertEquals("delivered", t[0].state)
+        assertEquals("aa", t[0].peer)
+        assertEquals(listOf("a1", "a1", "other", "a1"), changes)
+        sub.close()
+        repo.deleteThread("a1")
+        assertTrue(repo.thread("a1").isEmpty())
+        assertEquals(4, changes.size)                 // closed: no more callbacks
+        chatDb.close()
     }
 
     @Test fun starred_star_unstar() {

@@ -5,7 +5,7 @@ emergency. Current release: **0.4.1**.
 
 ## Highest value
 
-### 1. Quick replies on the alert pop-up
+### 1. Quick replies on the alert pop-up — ✅ done (0.5)
 The full-screen alert only offers **Stop alarm**. Add one-tap replies —
 **On my way**, **Can't come**, **Call me** — that send a reply straight from
 the pop-up (and from the notification). The sender then sees *who is coming*,
@@ -38,6 +38,12 @@ anything.
 Typing a 32-character address is error-prone. Show your own address as a QR
 code and scan others'. Read Columba's QR identity codes too.
 
+### Per-alert chat — ✅ done (0.5)
+An alert is one message plus one reply today. Give every alert a conversation
+thread — on the sender's and the receiver's side — so both can keep talking
+("Where are you?" / "Ground floor, door is open"). Plain LXMF messages, so
+Columba and Sideband users can join in.
+
 ## Strong additions
 
 ### 6. Panic from the home screen and lock screen
@@ -63,6 +69,9 @@ left-to-right today because it is English-only).
 
 ## Smaller items
 
+- **Real database migrations** — the Room database falls back to a destructive
+  migration, so any schema change would wipe contacts, settings and history.
+  Add proper migrations before the next schema change.
 - **Responder map** — show alert recipients who share their location back,
   with distance and ETA.
 - **Low-battery alert** — automatic alert with last location when the battery

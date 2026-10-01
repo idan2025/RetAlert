@@ -81,6 +81,10 @@
         </receiver>
 
         <receiver
+            android:name=".platform.QuickReplyReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".platform.AlarmStopReceiver"
             android:exported="false" />
 

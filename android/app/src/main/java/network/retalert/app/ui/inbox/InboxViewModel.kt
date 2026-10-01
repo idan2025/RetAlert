@@ -17,6 +17,7 @@ import javax.inject.Inject
 
 data class InboxUiState(
     val entries: List<InboxRow> = emptyList(),
+    val quickReplies: List<String> = network.retalert.domain.DEFAULT_QUICK_REPLIES,
     val flash: String = "",
 )
 
@@ -28,6 +29,8 @@ data class InboxRow(
     val text: String,
     /** The sender is sharing a location we can show on the map. */
     val hasLocation: Boolean = false,
+    /** What we answered ("On my way", "Acknowledged"…), if anything. */
+    val myReply: String? = null,
 )
 
 /** Inbox screen: received alerts list, reply (canned/text) + manual ack by
@@ -38,6 +41,8 @@ class InboxViewModel @Inject constructor(
     private val contacts: ContactRepository,
     private val engine: ReticulumEngine,
     private val tracks: LiveTrackStore,
+    private val settings: network.retalert.domain.SettingsRepository,
+    private val myReplies: network.retalert.app.platform.MyReplies,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(InboxUiState())
@@ -52,24 +57,31 @@ class InboxViewModel @Inject constructor(
                 InboxRow(
                     e.alertId, e.sourceHash, names[e.sourceHash].orEmpty(), e.severity, e.text,
                     hasLocation = tracks.get(e.sourceHash) != null,
+                    myReply = myReplies.get(e.alertId),
                 )
             }
         }.getOrDefault(emptyList())
-        _state.update { it.copy(entries = rows) }
+        runCatching { myReplies.retainOnly(rows.map { it.alertId }.toSet()) }
+        val quick = runCatching { settings.load().quickReplies.toList() }.getOrDefault(network.retalert.domain.DEFAULT_QUICK_REPLIES)
+        _state.update { it.copy(entries = rows, quickReplies = quick) }
     }
 
     /** Re-send the app-level ack for an alert to its sender. */
     fun ackAlert(row: InboxRow) = viewModelScope.launch(Dispatchers.IO) {
         val flash = runCatching { engine.ack(row.alertId, row.sourceHash) }
+            .onSuccess { if (myReplies.get(row.alertId) == null) myReplies.set(row.alertId, network.retalert.app.platform.MyReplies.ACKNOWLEDGED) }
             .fold({ "ack sent for ${row.alertId.take(8)}…" }, { "ack failed: ${it.message}" })
         _state.update { it.copy(flash = flash) }
+        refresh()
     }
 
     /** Send a reply (ack + canned or free text) to the alert's sender. */
     fun reply(row: InboxRow, text: String) = viewModelScope.launch(Dispatchers.IO) {
         val flash = runCatching { engine.reply(row.alertId, row.sourceHash, text) }
+            .onSuccess { myReplies.set(row.alertId, text.ifBlank { network.retalert.app.platform.MyReplies.ACKNOWLEDGED }) }
             .fold({ if (text.isBlank()) "replied to ${row.alertId.take(8)}…" else "replied: $text" }, { "reply failed: ${it.message}" })
         _state.update { it.copy(flash = flash) }
+        refresh()
     }
 
     /** Follow the sender on the map. Returns false if they share no location. */

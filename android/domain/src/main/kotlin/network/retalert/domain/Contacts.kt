@@ -61,6 +61,8 @@ class Settings(
     /** Public name in LXMF announces — what Columba, Sideband and MeshChat
      *  show instead of "Peer 12F0930E". Empty: no name. */
     var displayName: String = "",
+    /** One-tap replies on the alert pop-up, notification and Inbox. */
+    var quickReplies: MutableList<String> = DEFAULT_QUICK_REPLIES.toMutableList(),
 ) {
     /** Set distance units, normalising to km|mi. */
     fun applyDistanceUnits(units: String) { distanceUnits = if (units == "mi") "mi" else "km" }
@@ -101,6 +103,14 @@ class Settings(
         allowlist.remove(h); denylist.remove(h)
     }
 }
+
+val DEFAULT_QUICK_REPLIES = listOf("On my way", "Can't come", "Call me")
+const val MAX_QUICK_REPLIES = 4
+const val MAX_QUICK_REPLY_LEN = 40
+
+/** Clean a user-edited quick-reply list: trimmed, non-empty, unique, capped. */
+fun normalizeQuickReplies(items: List<String>): MutableList<String> =
+    items.map { it.trim().take(MAX_QUICK_REPLY_LEN) }.filter { it.isNotEmpty() }.distinct().take(MAX_QUICK_REPLIES).toMutableList()
 
 /** An ad-hoc group: a named subset of contact destination hashes. */
 data class Group(val name: String, val members: List<String> = emptyList())

@@ -49,6 +49,15 @@ class SettingsAndParsingTest {
         assertEquals(1, s.interfaces.size)
     }
 
+    @Test fun `quick replies are cleaned and capped`() {
+        assertEquals(listOf("On my way", "Can't come", "Call me"), Settings().quickReplies)
+        assertEquals(
+            listOf("a", "b", "c", "d"),
+            normalizeQuickReplies(listOf(" a ", "", "b", "a", "c", "d", "e")),
+        )
+        assertEquals(40, normalizeQuickReplies(listOf("x".repeat(99))).single().length)
+    }
+
     @Test fun `rnode validation and legacy migration`() {
         val ok = IfaceConfig("r", IfaceType.RNODE, "LoRa", params = defaultParams(IfaceType.RNODE) + (IfaceParam.BT_ADDRESS to "AA:BB:CC:DD:EE:FF"))
         assertNull(validateIface(ok))
