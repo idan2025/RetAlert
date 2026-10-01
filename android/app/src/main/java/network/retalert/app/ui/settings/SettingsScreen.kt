@@ -419,6 +419,13 @@ private fun ConnectionSection(state: SettingsUiState, vm: SettingsViewModel, onO
             }
             OutlinedButton(onClick = onOpenInterfaces) { Text("Manage") }
         }
+        HorizontalDivider()
+        CheckItem(
+            "Old message format",
+            "Only for contacts on RetAlert 0.3 or older, or the original Python app. Off, alerts read normally in " +
+                "Columba, Sideband and MeshChat, and shared locations appear on their maps.",
+            state.legacyWire, vm::setLegacyWire,
+        )
     }
 }
 

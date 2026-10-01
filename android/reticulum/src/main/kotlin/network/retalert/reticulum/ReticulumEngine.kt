@@ -208,8 +208,10 @@ class ReticulumEngine(
      * without a path get a path request instead and are covered next tick.
      * Returns how many were handed to LXMF.
      */
-    fun sendGeo(recipients: List<String>, body: String): Int {
+    fun sendGeo(recipients: List<String>, fix: network.retalert.domain.Fix, expiresAtMs: Long? = null): Int {
         if (!running) return 0
+        val legacy = runCatching { settingsRepo.load().legacyWire }.getOrDefault(false)
+        val out = network.retalert.domain.Wire.geo(fix, legacy, expiresAtMs)
         var sent = 0
         for (r in recipients) {
             val h = normalizeHash(r) ?: continue
@@ -218,7 +220,7 @@ class ReticulumEngine(
                 PathRequests.request(bytes)
                 continue
             }
-            lxmf.sendMessage(h, body, opportunistic = true)
+            lxmf.sendMessage(h, out.content, opportunistic = true, fields = out.fields)
             sent++
         }
         return sent

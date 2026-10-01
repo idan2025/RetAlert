@@ -33,8 +33,11 @@ interface LxmfRouter {
         /** Single-packet delivery straight to the peer's delivery destination
          *  (no link). Right for small control messages such as acks. */
         opportunistic: Boolean = false,
+        /** LXMF fields (FIELD_TELEMETRY, FIELD_CUSTOM_*…) alongside [body]. */
+        fields: Map<Int, Any> = emptyMap(),
     )
 
+    /** [text] is already normalised by [network.retalert.domain.Wire.toInternal]. */
     fun setIncomingCallback(cb: ((sourceHex: String, text: String, timestamp: Double) -> Unit)?)
 }
 
@@ -57,6 +60,7 @@ class StubLxmfRouter(
         onDelivered: (() -> Unit)?,
         onFailed: (() -> Unit)?,
         opportunistic: Boolean,
+        fields: Map<Int, Any>,
     ) {
         warn("sendMessage -> $recipientHex (${body.length} bytes); LXMF-kt not wired")
         // No transport available: report failure so AckTracker marks the

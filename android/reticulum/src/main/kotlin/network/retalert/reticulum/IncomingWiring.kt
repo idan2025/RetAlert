@@ -1,5 +1,8 @@
 package network.retalert.reticulum
 
+import network.retalert.domain.LxmfOut
+import network.retalert.domain.Wire
+
 import network.retalert.domain.AckTracker
 import network.retalert.domain.Contacts
 import network.retalert.domain.Discover
@@ -32,6 +35,8 @@ class IncomingWiring(
     private val lxmf: LxmfRouter,
     private val inbox: network.retalert.domain.InboxRepository,
     private val notifier: IncomingNotifier,
+    /** "Old message format" setting (see [network.retalert.domain.Wire]). */
+    private val legacyWire: () -> Boolean = { false },
 ) {
 
     fun build(
@@ -41,7 +46,7 @@ class IncomingWiring(
         tracks: LiveTrackStore,
     ): IncomingDispatcher {
         val sendAck: (alertId: String, sourceHex: String) -> Unit = { id, src ->
-            sendControl(src, encodeAck(id))
+            sendControl(src, Wire.ack(id, legacyWire()))
         }
         val ackCb: (alertId: String, sourceHex: String) -> Unit = { id, src ->
             ackTracker.onAck(id, src)
@@ -73,12 +78,12 @@ class IncomingWiring(
 
     /** Receiver-side reply (ack + text) to an inbound alert. */
     fun sendReply(alertId: String, sourceHex: String, reply: String) {
-        sendControl(sourceHex, encodeReply(alertId, reply))
+        sendControl(sourceHex, Wire.reply(alertId, reply, legacyWire()))
     }
 
     /** Receiver-side manual ack for an inbound alert. */
     fun sendAck(alertId: String, sourceHex: String) {
-        sendControl(sourceHex, encodeAck(alertId))
+        sendControl(sourceHex, Wire.ack(alertId, legacyWire()))
     }
 
     /**
@@ -88,12 +93,13 @@ class IncomingWiring(
      * seconds after its delivery completes, so an immediate backchannel ack is
      * silently dropped. Falls back to a direct link if the packet fails.
      */
-    private fun sendControl(destHex: String, body: String) {
+    private fun sendControl(destHex: String, out: LxmfOut) {
         runCatching {
             lxmf.sendMessage(
                 recipientHex = destHex,
-                body = body,
-                onFailed = { runCatching { lxmf.sendMessage(destHex, body) } },
+                body = out.content,
+                fields = out.fields,
+                onFailed = { runCatching { lxmf.sendMessage(destHex, out.content, fields = out.fields) } },
                 opportunistic = true,
             )
         }

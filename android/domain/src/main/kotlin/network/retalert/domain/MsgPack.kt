@@ -2,9 +2,10 @@ package network.retalert.domain
 
 import java.nio.ByteBuffer
 
-/** Minimal msgpack codec for RetAlert wire types (str, int, bin, array).
- *  Only what `MediaChunk` needs — byte-identical to Python `umsgpack.packb/unpackb`
- *  for the 6-tuple `[str, str, int, int, str, bin]`. */
+/** Minimal msgpack codec for RetAlert wire types (nil, bool, int, float,
+ *  str, bin, array, map) — byte-identical to Python `umsgpack.packb/unpackb`
+ *  for `MediaChunk` and for the LXMF fields RetAlert exchanges with Sideband
+ *  and Columba (Telemeter, custom data). Map keys keep their decoded type. */
 object MsgPack {
     fun pack(value: Any?): ByteArray {
         val out = java.io.ByteArrayOutputStream()
@@ -20,12 +21,20 @@ object MsgPack {
             is Int -> writeInt(value.toLong(), out)
             is Long -> writeInt(value, out)
             is String -> writeStr(value, out)
+            is Double -> { out.write(0xcb); out.write(ByteBuffer.allocate(8).putDouble(value).array()) }
             is List<*> -> {
                 val n = value.size
                 if (n <= 15) out.write(0x90 or n)
                 else if (n <= 65535) { out.write(0xdc); writeU16(n, out) }
                 else { out.write(0xdd); writeU32(n, out) }
                 value.forEach { write(it, out) }
+            }
+            is Map<*, *> -> {
+                val n = value.size
+                if (n <= 15) out.write(0x80 or n)
+                else if (n <= 65535) { out.write(0xde); writeU16(n, out) }
+                else { out.write(0xdf); writeU32(n, out) }
+                value.forEach { (k, v) -> write(k, out); write(v, out) }
             }
             else -> throw IllegalArgumentException("msgpack: unsupported ${value!!::class}")
         }
@@ -54,15 +63,17 @@ object MsgPack {
     }
 
     private fun writeInt(v: Long, out: java.io.ByteArrayOutputStream) {
+        // umsgpack order: non-negative values use the smallest unsigned type.
         when {
             v in 0..127 -> out.write(v.toInt())
-            v in -32..-1 -> out.write((v.toInt() and 0xff))
             v in 0..255 -> { out.write(0xcc); out.write(v.toInt()) }
-            v in -128..127 -> { out.write(0xd0); out.write(v.toInt()) }
-            v in -32768..32767 -> { out.write(0xd1); writeI16(v.toInt(), out) }
             v in 0..65535 -> { out.write(0xcd); writeU16(v.toInt(), out) }
-            v in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong() -> { out.write(0xd2); writeI32(v.toInt(), out) }
             v in 0..0xFFFFFFFFL -> { out.write(0xce); writeU32(v.toInt(), out) }
+            v >= 0 -> { out.write(0xcf); writeI64(v, out) }
+            v >= -32 -> out.write((v.toInt() and 0xff))
+            v >= -128 -> { out.write(0xd0); out.write(v.toInt()) }
+            v >= -32768 -> { out.write(0xd1); writeI16(v.toInt(), out) }
+            v >= Int.MIN_VALUE -> { out.write(0xd2); writeI32(v.toInt(), out) }
             else -> { out.write(0xd3); writeI64(v, out) }
         }
     }
@@ -91,14 +102,7 @@ object MsgPack {
         val b = data[cur[0]++].toInt() and 0xff
         return when {
             b <= 0x7f -> b                                  // positive fixint
-            b in 0x80..0x8f -> {                            // fixmap (not produced by us)
-                val n = b and 0x0f
-                val map = LinkedHashMap<String, Any?>()
-                for (i in 0 until n) {
-                    val k = read(data, cur); val v = read(data, cur); map[k.toString()] = v
-                }
-                map
-            }
+            b in 0x80..0x8f -> readMap(data, cur, b and 0x0f)  // fixmap
             b in 0x90..0x9f -> readArray(data, cur, b and 0x0f)  // fixarray
             b in 0xa0..0xbf -> readStr(data, cur, b and 0x1f)   // fixstr
             b in 0xe0..0xff -> b - 256                       // negative fixint
@@ -108,8 +112,8 @@ object MsgPack {
             b == 0xc4 -> readBin(data, cur, readU8(data, cur))       // bin8
             b == 0xc5 -> readBin(data, cur, readU16(data, cur))      // bin16
             b == 0xc6 -> readBin(data, cur, readU32(data, cur).toInt()) // bin32
-            b == 0xca -> { cur[0] += 4; 0f }                         // float32 (unused)
-            b == 0xcb -> { cur[0] += 8; 0.0 }                         // float64 (unused)
+            b == 0xca -> Float.fromBits(readU32(data, cur).toInt()).toDouble() // float32
+            b == 0xcb -> Double.fromBits(readU64(data, cur))          // float64
             b == 0xcc -> readU8(data, cur).toLong()                  // uint8
             b == 0xcd -> readU16(data, cur).toLong()                 // uint16
             b == 0xce -> readU32(data, cur)                          // uint32
@@ -123,8 +127,16 @@ object MsgPack {
             b == 0xdb -> readStr(data, cur, readU32(data, cur).toInt()) // str32
             b == 0xdc -> readArray(data, cur, readU16(data, cur))    // array16
             b == 0xdd -> readArray(data, cur, readU32(data, cur).toInt()) // array32
+            b == 0xde -> readMap(data, cur, readU16(data, cur))      // map16
+            b == 0xdf -> readMap(data, cur, readU32(data, cur).toInt()) // map32
             else -> throw IllegalArgumentException("msgpack: unknown tag 0x${b.toString(16)}")
         }
+    }
+
+    private fun readMap(d: ByteArray, c: IntArray, n: Int): Map<Any?, Any?> {
+        val map = LinkedHashMap<Any?, Any?>()
+        repeat(n) { val k = read(d, c); map[k] = read(d, c) }
+        return map
     }
 
     private fun readU8(d: ByteArray, c: IntArray): Int = d[c[0]++].toInt() and 0xff

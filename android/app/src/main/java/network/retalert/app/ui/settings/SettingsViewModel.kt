@@ -61,6 +61,7 @@ data class SettingsUiState(
     val alertLockScreen: Boolean = true,
     val alarmVibrate: Boolean = true,
     val alarmMinutes: Int = AlarmSound.DEFAULT_RING_MINUTES,
+    val legacyWire: Boolean = false,
     val flash: String = "",
 )
 
@@ -121,6 +122,7 @@ class SettingsViewModel @Inject constructor(
             alertLockScreen = s.alertLockScreen,
             alarmVibrate = s.alarmVibrate,
             alarmMinutes = s.alarmMinutes,
+            legacyWire = s.legacyWire,
             useSharedInstance = s.useSharedInstance,
             panicShareLocation = s.panicShareLocation,
             liveShareIntervalS = s.liveShareIntervalS,
@@ -177,6 +179,7 @@ class SettingsViewModel @Inject constructor(
     fun setAlertPopup(v: Boolean) = mutate { it.alertPopup = v; null }
     fun setAlertLockScreen(v: Boolean) = mutate { it.alertLockScreen = v; null }
     fun setAlarmVibrate(v: Boolean) = mutate { it.alarmVibrate = v; null }
+    fun setLegacyWire(v: Boolean) = mutate { it.legacyWire = v; null }
     fun setAlarmMinutes(minutes: Int) = mutate { it.alarmMinutes = minutes.coerceIn(1, 60); null }
     fun stopPreview() = alarmPlayer.stopPreview()
     fun flash(msg: String) = _state.update { it.copy(flash = msg) }

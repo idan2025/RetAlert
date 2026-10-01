@@ -81,6 +81,8 @@ object PathRequests {
 class RnsTransport(
     private val ackTracker: network.retalert.domain.AckTracker,
     private val lxmf: network.retalert.reticulum.lxmf.LxmfRouter,
+    /** "Old message format" setting: pre-0.4 `!RETALERT!` text instead of fields. */
+    private val legacyWire: () -> Boolean = { false },
 ) {
     /** (alertId|recipient) -> when the LXMF send started (ms). */
     private val inFlight = ConcurrentHashMap<String, Long>()
@@ -112,22 +114,24 @@ class RnsTransport(
         val k = key(alert.alertId, recipientHex)
         if (isInFlight(alert.alertId, recipientHex)) return
         inFlight[k] = System.currentTimeMillis()
-        val body = encodeAlert(alert.severity, alert.text, alert.alertId)
+        val out = network.retalert.domain.Wire.alert(alert.severity, alert.text, alert.alertId, legacyWire())
         try {
-            sendLxmf(k, alert, recipientHex, hash, body)
+            sendLxmf(k, alert, recipientHex, hash, out)
         } catch (e: Exception) {
             inFlight.remove(k)
             throw e
         }
     }
 
-    private fun sendLxmf(k: String, alert: Alert, recipientHex: String, hash: String, body: String) {
+    private fun sendLxmf(k: String, alert: Alert, recipientHex: String, hash: String, out: network.retalert.domain.LxmfOut) {
+        val size = out.content.toByteArray().size + out.fields.values.sumOf { (it as? ByteArray)?.size ?: it.toString().length } + 8
         lxmf.sendMessage(
             recipientHex = hash,
-            body = body,
+            body = out.content,
+            fields = out.fields,
             // Alerts that fit one packet skip link setup (much faster, esp. over
             // LoRa); longer ones go over a link. RetryQueue covers failures.
-            opportunistic = body.toByteArray().size <= OPPORTUNISTIC_MAX_BYTES,
+            opportunistic = size <= OPPORTUNISTIC_MAX_BYTES,
             onDelivered = {
                 inFlight.remove(k)
                 ackTracker.onDelivered(alert.alertId, recipientHex)

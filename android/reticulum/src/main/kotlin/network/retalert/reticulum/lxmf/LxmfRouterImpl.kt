@@ -78,7 +78,10 @@ class LxmfRouterImpl(
             r.registerDeliveryCallback { message ->
                 runCatching {
                     val srcHex = message.sourceHash.toHexString()
-                    val text = message.content
+                    // RetAlert's own fields, a Sideband/Columba location, or
+                    // plain text — all mapped to the form the dispatcher parses.
+                    @Suppress("UNCHECKED_CAST")
+                    val text = network.retalert.domain.Wire.toInternal(message.content, message.fields as Map<Int, Any?>)
                     val ts = message.timestamp ?: (System.currentTimeMillis() / 1000.0)
                     incomingCb?.invoke(srcHex, text, ts)
                 }.onFailure { Log.e(TAG, "inbound delivery handler failed", it) }
@@ -123,6 +126,7 @@ class LxmfRouterImpl(
         onDelivered: (() -> Unit)?,
         onFailed: (() -> Unit)?,
         opportunistic: Boolean,
+        fields: Map<Int, Any>,
     ) {
         val r = router
         val src = deliveryDestination
@@ -159,6 +163,7 @@ class LxmfRouterImpl(
                     title = "",
                     desiredMethod = if (opportunistic) DeliveryMethod.OPPORTUNISTIC else DeliveryMethod.DIRECT,
                 )
+                message.fields.putAll(fields)
                 message.deliveryCallback = {
                     Log.i(TAG, "delivered to $recipientHex")
                     onDelivered?.invoke()
