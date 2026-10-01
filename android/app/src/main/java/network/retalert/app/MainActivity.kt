@@ -11,7 +11,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -50,9 +53,14 @@ class MainActivity : ComponentActivity() {
         val launcher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* no-op */ }
         missingPerms().takeIf { it.isNotEmpty() }?.let { launcher.launch(it) }
         setContent {
-            RetAlertTheme {
-                Surface(modifier = Modifier.fillMaxSize()) { RetAlertApp() }
-                AlarmOverlay(alarm)
+            // The UI is English-only: on a right-to-left system (Hebrew, Arabic)
+            // mirroring it only scrambles the text ("min 3", periods at the
+            // start). Lay it out left-to-right until there are RTL translations.
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                RetAlertTheme {
+                    Surface(modifier = Modifier.fillMaxSize()) { RetAlertApp() }
+                    AlarmOverlay(alarm)
+                }
             }
         }
     }
@@ -82,5 +90,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_SHOW_ALARM = "network.retalert.extra.SHOW_ALARM"
         const val EXTRA_STOP_ALARM = "network.retalert.extra.STOP_ALARM"
+        /** Pop-up over other apps, but not over the lock screen. */
+        const val EXTRA_POPUP = "network.retalert.extra.POPUP"
     }
 }

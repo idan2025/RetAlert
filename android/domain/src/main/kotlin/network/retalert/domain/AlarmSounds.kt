@@ -48,6 +48,8 @@ object AlarmSound {
     }
 
     const val DEFAULT_VOLUME_PERCENT = 50
+    const val DEFAULT_RING_MINUTES = 3
+    val RING_MINUTES = listOf(1, 3, 5, 10)
 
     /** Alarm-stream index for [percent] of [max]: rounded, never below 1 so
      *  an alert can't be set to ring silently. */

@@ -242,6 +242,10 @@ class RoomSettingsRepository(
         val alarmSound: String = network.retalert.domain.AlarmSound.DEFAULT,
         val alarmSoundName: String = "",
         val alarmVolumePercent: Int = network.retalert.domain.AlarmSound.DEFAULT_VOLUME_PERCENT,
+        val alertPopup: Boolean = true,
+        val alertLockScreen: Boolean = true,
+        val alarmVibrate: Boolean = true,
+        val alarmMinutes: Int = network.retalert.domain.AlarmSound.DEFAULT_RING_MINUTES,
     )
 
     override fun load(): Settings {
@@ -267,6 +271,10 @@ class RoomSettingsRepository(
             alarmSound = network.retalert.domain.AlarmSound.normalize(s.alarmSound),
             alarmSoundName = s.alarmSoundName,
             alarmVolumePercent = s.alarmVolumePercent.coerceIn(10, 100),
+            alertPopup = s.alertPopup,
+            alertLockScreen = s.alertLockScreen,
+            alarmVibrate = s.alarmVibrate,
+            alarmMinutes = s.alarmMinutes.coerceIn(1, 60),
         )
     }
 
@@ -288,6 +296,10 @@ class RoomSettingsRepository(
             alarmSound = settings.alarmSound,
             alarmSoundName = settings.alarmSoundName,
             alarmVolumePercent = settings.alarmVolumePercent,
+            alertPopup = settings.alertPopup,
+            alertLockScreen = settings.alertLockScreen,
+            alarmVibrate = settings.alarmVibrate,
+            alarmMinutes = settings.alarmMinutes,
         )
         dao.upsert(SettingsEntity(1, json.encodeToString(Snapshot.serializer(), s)))
     }

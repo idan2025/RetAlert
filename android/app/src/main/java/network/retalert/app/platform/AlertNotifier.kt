@@ -1,5 +1,6 @@
 package network.retalert.app.platform
 
+import android.app.KeyguardManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -39,13 +40,34 @@ class AlertNotifier @Inject constructor(
     }
 
     override fun onAlert(msg: IncomingMessage) {
-        val s = runCatching { settings.load() }.getOrNull()
-        val override = s?.alarmOverrideSilent ?: true
+        val s = runCatching { settings.load() }.getOrNull() ?: network.retalert.domain.Settings()
+        val ring = s.alarmOverrideSilent
         // Ring first: a phone with notifications blocked still gets the alarm.
-        if (override) {
-            alarm.start(msg, s?.alarmSound ?: AlarmSound.DEFAULT, s?.alarmVolumePercent ?: AlarmSound.DEFAULT_VOLUME_PERCENT)
+        if (ring) {
+            alarm.start(msg, AlarmPlayer.RingOptions(s.alarmSound, s.alarmVolumePercent, s.alarmVibrate, s.alarmMinutes))
+        } else {
+            alarm.show(msg)
         }
-        post(msg, ringing = override, updateOnly = false)
+        post(msg, ringing = ring, updateOnly = false, lockScreen = s.alertLockScreen)
+        if (s.alertPopup) popUp(s.alertLockScreen)
+    }
+
+    /**
+     * Bring the full-screen alert up over whatever app is open. Android only
+     * lets a background app start an activity with "Display over other apps"
+     * granted; without it the notification (heads-up) is all there is.
+     */
+    private fun popUp(overLockScreen: Boolean) {
+        if (!android.provider.Settings.canDrawOverlays(ctx)) return
+        val locked = ctx.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked == true
+        if (locked && !overLockScreen) return
+        runCatching {
+            ctx.startActivity(
+                activityIntent().putExtra(
+                    if (overLockScreen) MainActivity.EXTRA_SHOW_ALARM else MainActivity.EXTRA_POPUP, true,
+                ),
+            )
+        }
     }
 
     /**
@@ -54,7 +76,7 @@ class AlertNotifier @Inject constructor(
      * alert but loses its "Stop alarm" button; one the user already dismissed
      * or tapped stays gone.
      */
-    private fun post(msg: IncomingMessage, ringing: Boolean, updateOnly: Boolean) {
+    private fun post(msg: IncomingMessage, ringing: Boolean, updateOnly: Boolean, lockScreen: Boolean = false) {
         val mgr = NotificationManagerCompat.from(ctx)
         if (!mgr.areNotificationsEnabled()) return
         val id = notifId(msg.alertId)
@@ -87,7 +109,7 @@ class AlertNotifier @Inject constructor(
             .setContentIntent(open)
             .setAutoCancel(true)
             .apply {
-                if (!updateOnly) setFullScreenIntent(fullScreen, true)
+                if (!updateOnly && lockScreen) setFullScreenIntent(fullScreen, true)
                 if (ringing) {
                     setDeleteIntent(stop)
                     addAction(0, "Stop alarm", stop)

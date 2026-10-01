@@ -142,6 +142,8 @@ class RoomRepositoryTests {
         assertTrue(migrated.alarmOverrideSilent)
         assertEquals("builtin:siren", migrated.alarmSound)
         assertEquals(50, migrated.alarmVolumePercent)
+        assertTrue(migrated.alertPopup && migrated.alertLockScreen && migrated.alarmVibrate)
+        assertEquals(3, migrated.alarmMinutes)
 
         val rnode = IfaceConfig("r1", IfaceType.RNODE, "LoRa", params = defaultParams(IfaceType.RNODE) + (IfaceParam.BT_ADDRESS to "AA:BB:CC:DD:EE:FF"))
         assertEquals(null, migrated.upsertInterface(rnode))
@@ -149,6 +151,9 @@ class RoomRepositoryTests {
         migrated.alarmSound = "uri:content://media/internal/audio/media/42"
         migrated.alarmSoundName = "Rooster"
         migrated.alarmVolumePercent = 70
+        migrated.alertPopup = false
+        migrated.alarmVibrate = false
+        migrated.alarmMinutes = 10
         repo.save(migrated)
         val loaded = repo.load()
         assertEquals(3, loaded.interfaces.size)
@@ -157,6 +162,10 @@ class RoomRepositoryTests {
         assertEquals("uri:content://media/internal/audio/media/42", loaded.alarmSound)
         assertEquals("Rooster", loaded.alarmSoundName)
         assertEquals(70, loaded.alarmVolumePercent)
+        assertFalse(loaded.alertPopup)
+        assertTrue(loaded.alertLockScreen)
+        assertFalse(loaded.alarmVibrate)
+        assertEquals(10, loaded.alarmMinutes)
     }
 
     @Test fun starred_star_unstar() {

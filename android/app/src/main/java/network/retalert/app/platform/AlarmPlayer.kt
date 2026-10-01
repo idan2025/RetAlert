@@ -35,7 +35,7 @@ import javax.inject.Singleton
  * vibrate) does not mute the alarm stream. With Do Not Disturb access, a DND
  * mode that would block alarms is lowered to "alarms only" while ringing.
  * Everything changed is restored on [stop]. Rings until stopped, at most
- * [MAX_RING_MS].
+ * [RingOptions.minutes].
  */
 @Singleton
 class AlarmPlayer @Inject constructor(
@@ -59,14 +59,31 @@ class AlarmPlayer @Inject constructor(
     /** The alert currently ringing, or null. */
     val ringing: StateFlow<IncomingMessage?> = _ringing.asStateFlow()
 
+    private val _shown = MutableStateFlow<IncomingMessage?>(null)
+    /** The alert the full-screen pop-up shows. Outlives the ringing when it
+     *  times out unattended; cleared when the user stops or dismisses it. */
+    val shown: StateFlow<IncomingMessage?> = _shown.asStateFlow()
+
     /** Called on the main thread with the alert that stopped ringing. */
     var onStopped: ((IncomingMessage) -> Unit)? = null
 
     private val timeout = Runnable { silence() }
 
-    /** Ring [msg] with [sound] (an [AlarmSound] value) at [volumePercent] of the alarm stream. */
-    fun start(msg: IncomingMessage, sound: String, volumePercent: Int) {
-        main.post { ring(msg, sound, volumePercent) }
+    /** Show [msg] in the pop-up without ringing (ringing switched off). */
+    fun show(msg: IncomingMessage) { _shown.value = msg }
+
+    /** How one alert rings. */
+    data class RingOptions(
+        val sound: String = AlarmSound.DEFAULT,
+        val volumePercent: Int = AlarmSound.DEFAULT_VOLUME_PERCENT,
+        val vibrate: Boolean = true,
+        val minutes: Int = AlarmSound.DEFAULT_RING_MINUTES,
+    )
+
+    /** Ring [msg] as [options] say. */
+    fun start(msg: IncomingMessage, options: RingOptions) {
+        _shown.value = msg
+        main.post { ring(msg, options) }
     }
 
     /** Play [sound] for a few seconds at [volumePercent], as an alert would
@@ -107,18 +124,22 @@ class AlarmPlayer @Inject constructor(
         previewSavedVolume = null
     }
 
+    /** User stopped or dismissed the alert: silence it and close the pop-up. */
     fun stop() {
+        _shown.value = null
         main.post { silence() }
     }
 
-    private fun ring(msg: IncomingMessage, sound: String, volumePercent: Int) {
+    private fun ring(msg: IncomingMessage, options: RingOptions) {
         _ringing.value = msg
         if (playing == null) {
             stopPreviewNow()
-            runCatching { begin(sound, volumePercent) }.onFailure { Log.w(TAG, "alarm start failed", it) }
+            runCatching { begin(options) }.onFailure { Log.w(TAG, "alarm start failed", it) }
         }
+        val ms = options.minutes.coerceIn(1, 60) * 60_000L
         main.removeCallbacks(timeout)
-        main.postDelayed(timeout, MAX_RING_MS)
+        main.postDelayed(timeout, ms)
+        wakeLock?.let { runCatching { it.acquire(ms + 5_000) } }
     }
 
     private fun silence() {
@@ -137,14 +158,14 @@ class AlarmPlayer @Inject constructor(
         stopped?.let { m -> runCatching { onStopped?.invoke(m) } }
     }
 
-    private fun begin(sound: String, volumePercent: Int) {
+    private fun begin(options: RingOptions) {
         wakeLock = ctx.getSystemService(PowerManager::class.java)
             ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "retalert:alarm")
-            ?.apply { acquire(MAX_RING_MS + 5_000) }
+            ?.apply { setReferenceCounted(false) }
         liftDnd()
-        savedAlarmVolume = setAlarmVolume(volumePercent)
-        playing = play(sound)
-        vibrate()
+        savedAlarmVolume = setAlarmVolume(options.volumePercent)
+        playing = play(options.sound)
+        if (options.vibrate) vibrate()
     }
 
     /** Start [sound] looping on the alarm stream; the built-in siren if it can't play. */
@@ -234,7 +255,6 @@ class AlarmPlayer @Inject constructor(
 
     private companion object {
         const val TAG = "RetAlert/Alarm"
-        const val MAX_RING_MS = 3 * 60_000L
         const val PREVIEW_MS = 4_000L
         const val FALLBACK = "siren"
         val ALARM_AUDIO: AudioAttributes = AudioAttributes.Builder()

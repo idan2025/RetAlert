@@ -1,42 +1,73 @@
 package network.retalert.app.ui.alarm
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import network.retalert.app.platform.AlarmPlayer
 
-/** Shown on top of every screen while an incoming alert is ringing. */
+/** Full-screen emergency alert, on top of every screen, while an incoming
+ *  alert is ringing or shown (see [AlarmPlayer.shown]). */
 @Composable
 fun AlarmOverlay(alarm: AlarmPlayer) {
-    val msg by alarm.ringing.collectAsStateWithLifecycle()
-    val m = msg ?: return
-    AlertDialog(
+    val shown by alarm.shown.collectAsStateWithLifecycle()
+    val ringing by alarm.ringing.collectAsStateWithLifecycle()
+    val m = shown ?: return
+    Dialog(
         onDismissRequest = {},
-        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
-        title = { Text("ALERT · ${m.severity.uppercase()}", color = MaterialTheme.colorScheme.error) },
-        text = {
-            Column {
-                Text(m.text, style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Text("From ${m.sourceHash.take(8)}… — open Inbox to reply.", style = MaterialTheme.typography.bodySmall)
+        properties = DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+        ),
+    ) {
+        Surface(Modifier.fillMaxSize(), color = AlertRed, contentColor = Color.White) {
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 48.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+            ) {
+                Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.height(96.dp).fillMaxWidth())
+                Text("ALERT", fontSize = 44.sp, fontWeight = FontWeight.Black)
+                Text(m.severity.uppercase(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(m.text, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+                Text(
+                    "From ${m.sourceHash.take(8)}… — open the Inbox to reply.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
+                Button(
+                    onClick = { alarm.stop() },
+                    modifier = Modifier.fillMaxWidth().height(64.dp).padding(top = 8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = AlertRed),
+                ) {
+                    Text(if (ringing != null) "Stop alarm" else "Dismiss", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = { alarm.stop() },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-            ) { Text("Stop alarm") }
-        },
-    )
+        }
+    }
 }
+
+private val AlertRed = Color(0xFFB3261E)
