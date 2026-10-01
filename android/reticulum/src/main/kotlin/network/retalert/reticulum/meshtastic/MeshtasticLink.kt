@@ -89,19 +89,23 @@ class MeshtasticBleLink(private val context: Context, private val address: Strin
     @Volatile private var pending: CompletableFuture<Any?>? = null
     private val opLock = Object()
     private val drainSignal = LinkedBlockingQueue<Unit>()
+    // Per-connection state, reset by every [open]: the interface reuses this
+    // link object for each reconnect.
     @Volatile private var closed = false
+    @Volatile private var session = 0
     private var onClosed: ((Throwable?) -> Unit)? = null
-    private val connected = CompletableFuture<Unit>()
+    @Volatile private var connected = CompletableFuture<Unit>()
 
     private val callback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            if (g !== gatt) return // a previous connection's late callback
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 connected.complete(Unit)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 val e = IOException("Bluetooth disconnected (status $status)")
                 connected.completeExceptionally(e)
                 pending?.completeExceptionally(e)
-                fail(e)
+                fail(e, session)
             }
         }
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) { pending?.complete(mtu) }
@@ -132,6 +136,11 @@ class MeshtasticBleLink(private val context: Context, private val address: Strin
     }
 
     override fun open(onFromRadio: (ByteArray) -> Unit, onClosed: (Throwable?) -> Unit) {
+        val mySession = ++session
+        closed = false
+        connected = CompletableFuture()
+        pending = null
+        drainSignal.clear()
         this.onClosed = onClosed
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
             ?: throw IOException("this phone has no Bluetooth")
@@ -168,20 +177,20 @@ class MeshtasticBleLink(private val context: Context, private val address: Strin
             throw if (e is IOException) e else IOException(e.cause?.message ?: e.message ?: "Bluetooth connect failed", e)
         }
         thread(name = "meshtastic-ble-rx", isDaemon = true) {
-            while (!closed) {
+            while (!closed && session == mySession) {
                 // Poll now and then even without a notification: cheap, and robust
                 // against a missed FromNum.
                 drainSignal.poll(DRAIN_POLL_S, TimeUnit.SECONDS)
-                if (closed) break
+                if (closed || session != mySession) break
                 try {
-                    while (!closed) {
+                    while (!closed && session == mySession) {
                         val bytes = op { gatt?.readCharacteristic(fromRadio) == true } as ByteArray
                         if (bytes.isEmpty()) break
                         onFromRadio(bytes)
                     }
                 } catch (e: Exception) {
                     if (!closed) Log.w(TAG, "FromRadio read failed", e)
-                    fail(e)
+                    fail(e, mySession)
                 }
             }
         }
@@ -222,8 +231,8 @@ class MeshtasticBleLink(private val context: Context, private val address: Strin
         }
     }
 
-    private fun fail(e: Throwable) {
-        if (closed) return
+    private fun fail(e: Throwable, failedSession: Int) {
+        if (closed || failedSession != session) return
         close()
         onClosed?.invoke(e)
     }
