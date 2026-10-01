@@ -66,12 +66,39 @@ import network.retalert.domain.IfaceParam
 import network.retalert.domain.IfaceType
 import network.retalert.domain.MeshLink
 import network.retalert.domain.MeshPort
+import network.retalert.domain.rnodeLink
+import network.retalert.reticulum.UsbSerial
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.hardware.usb.UsbManager
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import network.retalert.domain.defaultParams
 import network.retalert.domain.validateIface
 
 @Composable
 fun InterfacesScreen(onBack: (() -> Unit)? = null, vm: InterfacesViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
+    // USB devices come and go: refresh on resume, on plug/unplug and when access is granted.
+    LifecycleResumeEffect(Unit) { vm.refreshUsb(); onPauseOrDispose {} }
+    DisposableEffect(Unit) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) {
+                vm.refreshUsb()
+                if (i.action == UsbSerial.ACTION_PERMISSION) vm.reconnectInterfaces()
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+            addAction(UsbSerial.ACTION_PERMISSION)
+        }
+        ContextCompat.registerReceiver(ctx, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
+        onDispose { runCatching { ctx.unregisterReceiver(receiver) } }
+    }
     val snackbar = remember { SnackbarHostState() }
     var editing by remember { mutableStateOf<IfaceConfig?>(null) }
     var picking by remember { mutableStateOf(false) }
@@ -98,16 +125,15 @@ fun InterfacesScreen(onBack: (() -> Unit)? = null, vm: InterfacesViewModel = hil
             Modifier.fillMaxSize().padding(inner).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            item { SharedInstanceCard(state, vm) }
             item {
                 Text(
                     if (state.sharedInstance) {
-                        "RetAlert is attached to a shared instance (Columba, Sideband…), which owns the radios. " +
-                            "These interfaces are used only when no shared instance is running — turn \"Use shared instance\" off in Settings to use them now."
+                        "These interfaces are used only when no shared instance is running. Turn \"Use shared instance\" off above to use them now."
                     } else {
                         "How RetAlert's own Reticulum stack reaches other nodes. Changes apply immediately."
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 8.dp),
                 )
             }
             if (state.rows.isEmpty()) {
@@ -132,7 +158,7 @@ fun InterfacesScreen(onBack: (() -> Unit)? = null, vm: InterfacesViewModel = hil
         }
     }
     editing?.let { cfg ->
-        EditDialog(cfg, onDismiss = { editing = null }) { vm.save(it); editing = null }
+        EditDialog(cfg, state.usbDevices, onAllowUsb = vm::requestUsb, onDismiss = { editing = null }) { vm.save(it); editing = null }
     }
     deleting?.let { cfg ->
         AlertDialog(
@@ -221,7 +247,13 @@ private fun typeHelp(t: String) = when (t) {
 private val BANDWIDTHS = listOf("62500" to "62.5 kHz", "125000" to "125 kHz", "250000" to "250 kHz", "500000" to "500 kHz")
 
 @Composable
-private fun EditDialog(initial: IfaceConfig, onDismiss: () -> Unit, onSave: (IfaceConfig) -> Unit) {
+private fun EditDialog(
+    initial: IfaceConfig,
+    usb: List<UsbOption>,
+    onAllowUsb: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onSave: (IfaceConfig) -> Unit,
+) {
     val ctx = LocalContext.current
     var name by remember { mutableStateOf(initial.name) }
     val p = remember { mutableStateMapOf<String, String>().apply { putAll(initial.params) } }
@@ -261,9 +293,20 @@ private fun EditDialog(initial: IfaceConfig, onDismiss: () -> Unit, onSave: (Ifa
                         NumField("Forward port", p, IfaceParam.FORWARD_PORT)
                     }
                     IfaceType.RNODE -> {
-                        if (btGranted) PairedDevicePicker(p[IfaceParam.BT_ADDRESS].orEmpty(), prefer = Regex("rnode", RegexOption.IGNORE_CASE)) { p[IfaceParam.BT_ADDRESS] = it }
-                        else Hint("Allow Bluetooth access to pick your RNode.")
-                        Hint("Pair the RNode in Android's Bluetooth settings first. All nodes that should hear each other need the same radio settings.")
+                        val link = rnodeLink(current)
+                        Text("Connect to the RNode over", style = MaterialTheme.typography.bodyMedium)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilterChip(selected = link == MeshLink.BLE, onClick = { p[IfaceParam.LINK] = MeshLink.BLE }, label = { Text("Bluetooth") })
+                            FilterChip(selected = link == MeshLink.USB, onClick = { p[IfaceParam.LINK] = MeshLink.USB }, label = { Text("USB") })
+                        }
+                        if (link == MeshLink.USB) {
+                            UsbDevicePicker(p, usb, onAllowUsb)
+                        } else {
+                            if (btGranted) PairedDevicePicker(p[IfaceParam.BT_ADDRESS].orEmpty(), prefer = Regex("rnode", RegexOption.IGNORE_CASE)) { p[IfaceParam.BT_ADDRESS] = it }
+                            else Hint("Allow Bluetooth access to pick your RNode.")
+                            Hint("Pair the RNode in Android's Bluetooth settings first.")
+                        }
+                        Hint("All nodes that should hear each other need the same radio settings.")
                         val mhz = (p[IfaceParam.FREQUENCY]?.toLongOrNull() ?: 0L) / 1_000_000.0
                         var freqText by remember { mutableStateOf(if (mhz > 0) mhz.toString() else "") }
                         Field("Frequency (MHz)", freqText, "869.525", KeyboardType.Decimal) {
@@ -280,7 +323,7 @@ private fun EditDialog(initial: IfaceConfig, onDismiss: () -> Unit, onSave: (Ifa
                         NumField("Coding rate (5–8)", p, IfaceParam.CR)
                         NumField("TX power (dBm)", p, IfaceParam.TX_POWER)
                     }
-                    IfaceType.MESHTASTIC -> MeshtasticFields(p, btGranted)
+                    IfaceType.MESHTASTIC -> MeshtasticFields(p, btGranted, usb, onAllowUsb)
                     IfaceType.BLE -> {
                         if (!btGranted) Hint("Allow Bluetooth access (nearby devices) for the mesh to work.")
                         Hint("Connects to nearby phones running a Reticulum BLE mesh (Columba and others). Short range, no internet needed.")
@@ -340,23 +383,93 @@ private fun PairedDevicePicker(selected: String, prefer: Regex, onPick: (String)
     }
 }
 
+/** USB serial devices plugged in now, with "Allow USB" for ones RetAlert
+ *  can't open yet. An empty choice means "the first USB serial device". */
+@Composable
+private fun UsbDevicePicker(p: MutableMap<String, String>, usb: List<UsbOption>, onAllowUsb: (String) -> Unit) {
+    val selected = p[IfaceParam.USB_DEVICE].orEmpty()
+    Text("USB device", style = MaterialTheme.typography.bodyMedium)
+    if (usb.isEmpty()) {
+        Hint("Nothing plugged in. Connect the device with a USB-C OTG cable — it appears here.")
+    }
+    FilterChip(
+        selected = selected.isEmpty(), onClick = { p[IfaceParam.USB_DEVICE] = "" },
+        label = { Text("Any (first USB serial device)") }, modifier = Modifier.fillMaxWidth(),
+    )
+    usb.forEach { d ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FilterChip(
+                selected = selected == d.spec, onClick = { p[IfaceParam.USB_DEVICE] = d.spec },
+                label = { Text(d.label) }, modifier = Modifier.weight(1f),
+            )
+            if (!d.hasPermission) TextButton(onClick = { onAllowUsb(d.spec) }) { Text("Allow USB") }
+        }
+    }
+    if (usb.any { !it.hasPermission }) {
+        Hint("Android asks once per device. Tick \"always\" when it offers to open RetAlert for it, so a replugged cable reconnects by itself.")
+    }
+}
+
+/** The "Use shared instance" switch, also in Settings → Connection. */
+@Composable
+private fun SharedInstanceCard(state: InterfacesUiState, vm: InterfacesViewModel) {
+    Card(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("Shared instance", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        when {
+                            state.restarting -> "Restarting…"
+                            state.sharedInstance -> "Connected through Columba, Sideband or MeshChat on this phone (port ${state.sharedInstancePort})"
+                            state.useSharedInstance -> "None running — using the interfaces below"
+                            else -> "Off — using the interfaces below"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (state.sharedInstance) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = state.useSharedInstance, onCheckedChange = vm::setUseSharedInstance, enabled = !state.restarting)
+            }
+            if (state.useSharedInstance) {
+                var port by remember(state.sharedInstancePort) { mutableStateOf(state.sharedInstancePort.toString()) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = port, onValueChange = { port = it.filter(Char::isDigit).take(5) },
+                        label = { Text("Port on 127.0.0.1") }, singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                    )
+                    TextButton(onClick = { vm.setSharedInstancePort(port) }, enabled = port != state.sharedInstancePort.toString()) { Text("Save") }
+                    TextButton(onClick = vm::reconnectShared, enabled = !state.restarting) { Text("Reconnect") }
+                }
+                Hint("Start Columba, Sideband or MeshChat with instance sharing on, then tap Reconnect. Changing this restarts RetAlert.")
+            }
+        }
+    }
+}
+
 private fun bluetoothPermissions(c: IfaceConfig): List<String> = when {
     Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> emptyList()
     c.type == IfaceType.BLE -> listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT)
-    c.type == IfaceType.RNODE -> listOf(Manifest.permission.BLUETOOTH_CONNECT)
+    c.type == IfaceType.RNODE && rnodeLink(c) == MeshLink.BLE -> listOf(Manifest.permission.BLUETOOTH_CONNECT)
     c.type == IfaceType.MESHTASTIC && c.param(IfaceParam.LINK) == MeshLink.BLE -> listOf(Manifest.permission.BLUETOOTH_CONNECT)
     else -> emptyList()
 }
 
 @Composable
-private fun MeshtasticFields(p: MutableMap<String, String>, btGranted: Boolean) {
+private fun MeshtasticFields(p: MutableMap<String, String>, btGranted: Boolean, usb: List<UsbOption>, onAllowUsb: (String) -> Unit) {
     val link = p[IfaceParam.LINK] ?: MeshLink.BLE
     Text("Connect to the node over", style = MaterialTheme.typography.bodyMedium)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         FilterChip(selected = link == MeshLink.BLE, onClick = { p[IfaceParam.LINK] = MeshLink.BLE }, label = { Text("Bluetooth") })
         FilterChip(selected = link == MeshLink.TCP, onClick = { p[IfaceParam.LINK] = MeshLink.TCP }, label = { Text("Wi-Fi (TCP)") })
+        FilterChip(selected = link == MeshLink.USB, onClick = { p[IfaceParam.LINK] = MeshLink.USB }, label = { Text("USB") })
     }
-    if (link == MeshLink.BLE) {
+    if (link == MeshLink.USB) {
+        UsbDevicePicker(p, usb, onAllowUsb)
+        Hint("Disconnect the Meshtastic app from this node — a node talks to one app at a time.")
+    } else if (link == MeshLink.BLE) {
         if (btGranted) {
             PairedDevicePicker(p[IfaceParam.BT_ADDRESS].orEmpty(), prefer = Regex("meshtastic|_[0-9a-f]{4}$", RegexOption.IGNORE_CASE)) {
                 p[IfaceParam.BT_ADDRESS] = it

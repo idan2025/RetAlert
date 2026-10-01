@@ -22,6 +22,7 @@ dependencies {
     implementation(libs.reticulum.kt.rns.android)
     implementation(libs.reticulum.kt.rns.core)
     implementation(libs.reticulum.kt.rns.interfaces)
+    api(libs.usb.serial.android)
     // LXMF-kt real transport: composite build (../lxmf-kt) substitutes
     // com.github.torlando-tech.LXMF-kt:lxmf-core -> :lxmf-core. JitPack
     // publishes no artifacts for LXMF-kt (no jitpack.yml install step).

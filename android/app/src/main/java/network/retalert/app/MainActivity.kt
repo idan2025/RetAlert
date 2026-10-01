@@ -29,6 +29,7 @@ import network.retalert.reticulum.ReticulumService
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var alarm: AlarmPlayer
+    @Inject lateinit var engine: network.retalert.reticulum.ReticulumEngine
 
     private fun missingPerms(): Array<String> = buildList {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -71,6 +72,11 @@ class MainActivity : ComponentActivity() {
             setTurnScreenOn(true)
         }
         if (intent.getBooleanExtra(EXTRA_STOP_ALARM, false)) alarm.stop()
+        // A USB node was plugged in and the user let RetAlert handle it:
+        // permission is granted now, so connect without waiting for a retry.
+        if (intent.action == android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+            kotlin.concurrent.thread(name = "retalert-usb-attach", isDaemon = true) { runCatching { engine.reloadInterfaces() } }
+        }
     }
 
     companion object {

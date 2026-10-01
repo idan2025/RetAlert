@@ -54,6 +54,13 @@ class SettingsAndParsingTest {
         assertNull(validateIface(ok))
         assertEquals("pick a paired RNode", validateIface(ok.copy(params = defaultParams(IfaceType.RNODE))))
         assertEquals("spreading factor must be 5–12", validateIface(ok.copy(params = ok.params + (IfaceParam.SF to "13"))))
+        // USB RNode: no Bluetooth address needed; device is "vid:pid" or empty (first found).
+        val usb = ok.copy(params = defaultParams(IfaceType.RNODE) + (IfaceParam.LINK to MeshLink.USB))
+        assertNull(validateIface(usb))
+        assertNull(validateIface(usb.copy(params = usb.params + (IfaceParam.USB_DEVICE to "10c4:ea60"))))
+        assertEquals("pick the USB device", validateIface(usb.copy(params = usb.params + (IfaceParam.USB_DEVICE to "junk"))))
+        val mesh = IfaceConfig("m", IfaceType.MESHTASTIC, "Mesh", params = defaultParams(IfaceType.MESHTASTIC) + (IfaceParam.LINK to MeshLink.USB))
+        assertNull(validateIface(mesh))
         val migrated = legacyInterfaces(autoInterface = false, tcpSpecs = listOf("rns.example.org:4965", "bad"))
         assertEquals(listOf(IfaceType.AUTO, IfaceType.TCP_CLIENT), migrated.map { it.type })
         assertFalse(migrated[0].enabled)
