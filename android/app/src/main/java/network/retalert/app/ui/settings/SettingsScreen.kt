@@ -7,7 +7,16 @@ import android.annotation.SuppressLint
 import android.app.NotificationManager
 import android.net.Uri
 import android.os.PowerManager
+import android.provider.OpenableColumns
 import android.provider.Settings
+import android.media.RingtoneManager
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
+import androidx.compose.runtime.mutableFloatStateOf
+import network.retalert.domain.AlarmSound
 import androidx.core.app.NotificationManagerCompat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
@@ -134,9 +143,31 @@ private fun AlarmSection(state: SettingsUiState, vm: SettingsViewModel) {
     Section("Incoming alerts on this phone", "Make sure an alert reaches you with RetAlert closed and the phone silent.") {
         SwitchItem(
             "Ring through silent mode",
-            "Alerts ring as an alarm at full volume and vibrate, even in silent or vibrate mode, until you stop them.",
+            "Alerts ring as an alarm and vibrate, even in silent or vibrate mode, until you stop them.",
             state.alarmOverrideSilent, vm::setAlarmOverrideSilent,
         )
+        var pickingSound by remember { mutableStateOf(false) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text("Alarm sound", style = MaterialTheme.typography.bodyLarge)
+                Text(state.alarmSoundLabel, style = MaterialTheme.typography.bodySmall)
+            }
+            OutlinedButton(onClick = { pickingSound = true }) { Text("Change") }
+        }
+        if (pickingSound) AlarmSoundDialog(state, vm) { pickingSound = false; vm.stopPreview() }
+        var volume by remember(state.alarmVolumePercent) { mutableFloatStateOf(state.alarmVolumePercent.toFloat()) }
+        Text("Alarm volume: ${volume.toInt()}%", style = MaterialTheme.typography.bodyLarge)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Slider(
+                value = volume,
+                onValueChange = { volume = it },
+                onValueChangeFinished = { vm.setAlarmVolume(volume.toInt()) },
+                valueRange = 10f..100f,
+                steps = 8,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { vm.previewSound(state.alarmSound) }) { Icon(Icons.Filled.PlayArrow, "Preview at this volume") }
+        }
         key(tick) {
             val notifOk = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
             CheckRow("Notifications", notifOk, if (notifOk) "Allowed" else "Blocked — alerts can't be shown") {
@@ -172,6 +203,89 @@ private fun AlarmSection(state: SettingsUiState, vm: SettingsViewModel) {
         }
         OutlinedButton(onClick = vm::testAlarm, modifier = Modifier.fillMaxWidth()) { Text("Test alarm") }
     }
+}
+
+/** Built-in tones, the phone's alarm sound, any phone sound or any audio file,
+ *  each with a preview. A picked sound is checked for readability right away,
+ *  not discovered unreadable during an emergency. */
+@Composable
+private fun AlarmSoundDialog(state: SettingsUiState, vm: SettingsViewModel, onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    fun readable(uri: Uri): Boolean =
+        runCatching { ctx.contentResolver.openInputStream(uri)?.use { it.read() }; true }.getOrDefault(false)
+
+    val ringtonePicker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        @Suppress("DEPRECATION")
+        val uri = res.data?.getParcelableExtra<Uri>(RingtoneManager.EXTRA_RINGTONE_PICKED_URI) ?: return@rememberLauncherForActivityResult
+        if (!readable(uri)) {
+            vm.flash("RetAlert can't open that sound — choose it with \"Audio file\" instead")
+            return@rememberLauncherForActivityResult
+        }
+        val name = runCatching { RingtoneManager.getRingtone(ctx, uri)?.getTitle(ctx) }.getOrNull().orEmpty()
+        vm.setAlarmSound(AlarmSound.uri(uri.toString()), name)
+        onDismiss()
+    }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        // Keep read access across restarts: the alert may ring months from now.
+        runCatching { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        if (!readable(uri)) {
+            vm.flash("RetAlert can't open that file")
+            return@rememberLauncherForActivityResult
+        }
+        val name = runCatching {
+            ctx.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0) else null
+            }
+        }.getOrNull().orEmpty().substringBeforeLast('.')
+        vm.setAlarmSound(AlarmSound.uri(uri.toString()), name)
+        onDismiss()
+    }
+
+    @Composable
+    fun Option(value: String, label: String) {
+        Row(
+            Modifier.fillMaxWidth().clickable { vm.setAlarmSound(value) },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            RadioButton(selected = state.alarmSound == value, onClick = { vm.setAlarmSound(value) })
+            Text(label, Modifier.weight(1f))
+            IconButton(onClick = { vm.previewSound(value) }) { Icon(Icons.Filled.PlayArrow, "Preview $label") }
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Alarm sound") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("Built in", style = MaterialTheme.typography.labelLarge)
+                AlarmSound.BUILTINS.forEach { (id, label) -> Option(AlarmSound.builtin(id), label) }
+                Text("From this phone", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 8.dp))
+                Option(AlarmSound.SYSTEM, AlarmSound.label(AlarmSound.SYSTEM)!!)
+                if (AlarmSound.uriOf(state.alarmSound) != null) Option(state.alarmSound, state.alarmSoundLabel)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        ringtonePicker.launch(
+                            Intent(RingtoneManager.ACTION_RINGTONE_PICKER)
+                                .putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALL)
+                                .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                                .putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, false)
+                                .putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Alarm sound"),
+                        )
+                    }) { Text("Phone sounds") }
+                    OutlinedButton(onClick = { filePicker.launch(arrayOf("audio/*")) }) { Text("Audio file") }
+                }
+                Text(
+                    "Previews play at the alarm volume set in Settings, as a real alert would. " +
+                        "If a chosen sound can't be played, the built-in siren rings instead.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
 }
 
 @Composable

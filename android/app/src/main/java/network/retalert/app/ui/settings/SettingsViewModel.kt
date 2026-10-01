@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import android.content.Context
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import network.retalert.app.platform.AlarmPlayer
 import network.retalert.app.platform.AlertNotifier
 import network.retalert.app.platform.AppRestarter
 import kotlinx.coroutines.Dispatchers
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import network.retalert.domain.ANNOUNCE_MIN_INTERVAL
+import network.retalert.domain.AlarmSound
 import network.retalert.domain.ANNOUNCE_PRESETS
 import network.retalert.domain.ANNOUNCE_PRESET_VALUES
 import network.retalert.domain.DEFAULT_SHARED_INSTANCE_PORT
@@ -52,6 +54,9 @@ data class SettingsUiState(
     val announceInterval: Double = ANNOUNCE_MIN_INTERVAL,
     val keyCombos: List<KeyCombo> = emptyList(),
     val alarmOverrideSilent: Boolean = true,
+    val alarmSound: String = AlarmSound.DEFAULT,
+    val alarmSoundLabel: String = "",
+    val alarmVolumePercent: Int = AlarmSound.DEFAULT_VOLUME_PERCENT,
     val flash: String = "",
 )
 
@@ -70,6 +75,7 @@ class SettingsViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val presets: PresetRepository,
     private val alertNotifier: AlertNotifier,
+    private val alarmPlayer: AlarmPlayer,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -104,6 +110,9 @@ class SettingsViewModel @Inject constructor(
             deny = s.denylist.sorted(),
             interfaceSummary = s.interfaces.let { l -> "${l.count { it.enabled }} of ${l.size} on" },
             alarmOverrideSilent = s.alarmOverrideSilent,
+            alarmSound = s.alarmSound,
+            alarmSoundLabel = AlarmSound.label(s.alarmSound) ?: s.alarmSoundName.ifBlank { "Custom sound" },
+            alarmVolumePercent = s.alarmVolumePercent,
             useSharedInstance = s.useSharedInstance,
             panicShareLocation = s.panicShareLocation,
             liveShareIntervalS = s.liveShareIntervalS,
@@ -146,6 +155,21 @@ class SettingsViewModel @Inject constructor(
     fun setLiveShareMinutes(minutes: Int) = mutate { it.liveShareMinutes = minutes; null }
 
     fun setAlarmOverrideSilent(v: Boolean) = mutate { it.alarmOverrideSilent = v; null }
+
+    /** Choose what alerts ring with; [name] labels a picked ringtone or file. */
+    fun setAlarmSound(value: String, name: String = "") = mutate {
+        it.alarmSound = AlarmSound.normalize(value)
+        it.alarmSoundName = if (AlarmSound.uriOf(value) != null) name else ""
+        "Alarm sound: " + (AlarmSound.label(value) ?: name.ifBlank { "custom sound" })
+    }
+
+    fun previewSound(value: String) = alarmPlayer.preview(value, _state.value.alarmVolumePercent)
+
+    fun setAlarmVolume(percent: Int) = mutate { it.alarmVolumePercent = percent.coerceIn(10, 100); null }
+    fun stopPreview() = alarmPlayer.stopPreview()
+    fun flash(msg: String) = _state.update { it.copy(flash = msg) }
+
+    override fun onCleared() { alarmPlayer.stopPreview() }
 
     /** Ring a local fake alert exactly as a real one would. */
     fun testAlarm() = viewModelScope.launch(Dispatchers.IO) {

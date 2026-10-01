@@ -3,9 +3,12 @@ package network.retalert.app.platform
 import android.app.NotificationManager
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioFormat
 import android.media.AudioManager
+import android.media.AudioTrack
 import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -19,13 +22,16 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import network.retalert.domain.AlarmSound
 import network.retalert.domain.IncomingMessage
+import network.retalert.domain.ToneSynth
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Rings an incoming alert like an alarm clock: a looping sound on the ALARM
- * stream at full volume plus an alarm-class vibration. Ringer mode (silent /
+ * Rings an incoming alert like an alarm clock: the chosen [AlarmSound] looping
+ * on the ALARM stream at the chosen volume plus an alarm-class vibration. A sound
+ * that can't be played falls back to the built-in siren — never silence. Ringer mode (silent /
  * vibrate) does not mute the alarm stream. With Do Not Disturb access, a DND
  * mode that would block alarms is lowered to "alarms only" while ringing.
  * Everything changed is restored on [stop]. Rings until stopped, at most
@@ -39,7 +45,12 @@ class AlarmPlayer @Inject constructor(
     private val audio = ctx.getSystemService(AudioManager::class.java)
     private val nm = ctx.getSystemService(NotificationManager::class.java)
 
-    private var player: MediaPlayer? = null
+    /** A sound that is playing; [stop] releases it. */
+    private fun interface Playing { fun stop() }
+
+    private var playing: Playing? = null
+    private var preview: Playing? = null
+    private val pcmCache = HashMap<String, ShortArray>()
     private var wakeLock: PowerManager.WakeLock? = null
     private var savedAlarmVolume: Int? = null
     private var savedFilter: Int? = null
@@ -53,18 +64,58 @@ class AlarmPlayer @Inject constructor(
 
     private val timeout = Runnable { silence() }
 
-    fun start(msg: IncomingMessage) {
-        main.post { ring(msg) }
+    /** Ring [msg] with [sound] (an [AlarmSound] value) at [volumePercent] of the alarm stream. */
+    fun start(msg: IncomingMessage, sound: String, volumePercent: Int) {
+        main.post { ring(msg, sound, volumePercent) }
+    }
+
+    /** Play [sound] for a few seconds at [volumePercent], as an alert would
+     *  sound (Settings preview); no DND change, volume restored afterwards.
+     *  Ignored while an alert rings. */
+    fun preview(sound: String, volumePercent: Int) {
+        main.post {
+            stopPreviewNow()
+            if (playing != null) return@post
+            previewSavedVolume = setAlarmVolume(volumePercent)
+            preview = runCatching { play(sound) }.getOrNull()
+            main.postDelayed(previewTimeout, PREVIEW_MS)
+        }
+    }
+
+    private var previewSavedVolume: Int? = null
+
+    /** Set the alarm stream to [percent]; returns the previous index. */
+    private fun setAlarmVolume(percent: Int): Int? {
+        val a = audio ?: return null
+        val before = a.getStreamVolume(AudioManager.STREAM_ALARM)
+        val target = AlarmSound.volumeIndex(a.getStreamMaxVolume(AudioManager.STREAM_ALARM), percent)
+        runCatching { a.setStreamVolume(AudioManager.STREAM_ALARM, target, 0) }
+        return before
+    }
+
+    fun stopPreview() {
+        main.post { stopPreviewNow() }
+    }
+
+    private val previewTimeout = Runnable { stopPreviewNow() }
+
+    private fun stopPreviewNow() {
+        main.removeCallbacks(previewTimeout)
+        preview?.let { runCatching { it.stop() } }
+        preview = null
+        previewSavedVolume?.let { v -> runCatching { audio?.setStreamVolume(AudioManager.STREAM_ALARM, v, 0) } }
+        previewSavedVolume = null
     }
 
     fun stop() {
         main.post { silence() }
     }
 
-    private fun ring(msg: IncomingMessage) {
+    private fun ring(msg: IncomingMessage, sound: String, volumePercent: Int) {
         _ringing.value = msg
-        if (player == null) {
-            runCatching { begin() }.onFailure { Log.w(TAG, "alarm start failed", it) }
+        if (playing == null) {
+            stopPreviewNow()
+            runCatching { begin(sound, volumePercent) }.onFailure { Log.w(TAG, "alarm start failed", it) }
         }
         main.removeCallbacks(timeout)
         main.postDelayed(timeout, MAX_RING_MS)
@@ -74,9 +125,8 @@ class AlarmPlayer @Inject constructor(
         main.removeCallbacks(timeout)
         val stopped = _ringing.value
         _ringing.value = null
-        runCatching { player?.stop() }
-        runCatching { player?.release() }
-        player = null
+        playing?.let { runCatching { it.stop() } }
+        playing = null
         runCatching { vibrator()?.cancel() }
         savedAlarmVolume?.let { v -> runCatching { audio?.setStreamVolume(AudioManager.STREAM_ALARM, v, 0) } }
         savedAlarmVolume = null
@@ -87,26 +137,65 @@ class AlarmPlayer @Inject constructor(
         stopped?.let { m -> runCatching { onStopped?.invoke(m) } }
     }
 
-    private fun begin() {
+    private fun begin(sound: String, volumePercent: Int) {
         wakeLock = ctx.getSystemService(PowerManager::class.java)
             ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "retalert:alarm")
             ?.apply { acquire(MAX_RING_MS + 5_000) }
         liftDnd()
-        audio?.let { a ->
-            savedAlarmVolume = a.getStreamVolume(AudioManager.STREAM_ALARM)
-            runCatching { a.setStreamVolume(AudioManager.STREAM_ALARM, a.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0) }
-        }
-        val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        player = MediaPlayer().apply {
-            setAudioAttributes(ALARM_AUDIO)
-            setDataSource(ctx, uri)
-            isLooping = true
-            prepare()
-            start()
-        }
+        savedAlarmVolume = setAlarmVolume(volumePercent)
+        playing = play(sound)
         vibrate()
+    }
+
+    /** Start [sound] looping on the alarm stream; the built-in siren if it can't play. */
+    private fun play(sound: String): Playing {
+        val value = AlarmSound.normalize(sound)
+        AlarmSound.builtinId(value)?.let { return playBuiltin(it) }
+        val uri = when (value) {
+            AlarmSound.SYSTEM -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
+            else -> AlarmSound.uriOf(value)?.let(Uri::parse)
+        }
+        return runCatching { playUri(uri ?: error("no sound")) }.getOrElse {
+            Log.w(TAG, "sound $value unavailable, using the built-in siren", it)
+            playBuiltin(FALLBACK)
+        }
+    }
+
+    private fun playUri(uri: Uri): Playing {
+        val mp = MediaPlayer()
+        try {
+            mp.setAudioAttributes(ALARM_AUDIO)
+            mp.setDataSource(ctx, uri)
+            mp.isLooping = true
+            mp.prepare()
+            mp.start()
+        } catch (e: Exception) {
+            mp.release()
+            throw e
+        }
+        return Playing { runCatching { mp.stop() }; mp.release() }
+    }
+
+    /** A synthesized tone, looped forever from a static buffer. */
+    private fun playBuiltin(id: String): Playing {
+        val pcm = pcmCache.getOrPut(id) { ToneSynth.render(id) }
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(ALARM_AUDIO)
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(ToneSynth.SAMPLE_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build(),
+            )
+            .setTransferMode(AudioTrack.MODE_STATIC)
+            .setBufferSizeInBytes(pcm.size * 2)
+            .build()
+        track.write(pcm, 0, pcm.size)
+        track.setLoopPoints(0, pcm.size, -1)
+        track.play()
+        return Playing { runCatching { track.stop() }; track.release() }
     }
 
     /** DND "total silence", or a priority mode that excludes alarms, would
@@ -146,6 +235,8 @@ class AlarmPlayer @Inject constructor(
     private companion object {
         const val TAG = "RetAlert/Alarm"
         const val MAX_RING_MS = 3 * 60_000L
+        const val PREVIEW_MS = 4_000L
+        const val FALLBACK = "siren"
         val ALARM_AUDIO: AudioAttributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_ALARM)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)

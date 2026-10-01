@@ -42,6 +42,12 @@ class Settings(
     /** Incoming alerts ring as an alarm: alarm stream at full volume plus
      *  vibration, through silent / vibrate mode and Do Not Disturb. */
     var alarmOverrideSilent: Boolean = true,
+    /** What alerts ring with ([AlarmSound] value). */
+    var alarmSound: String = AlarmSound.DEFAULT,
+    /** Display name of a picked ringtone / file (built-ins have their own label). */
+    var alarmSoundName: String = "",
+    /** Alarm-stream volume an alert rings at, percent of the maximum. */
+    var alarmVolumePercent: Int = AlarmSound.DEFAULT_VOLUME_PERCENT,
 ) {
     /** Set distance units, normalising to km|mi. */
     fun applyDistanceUnits(units: String) { distanceUnits = if (units == "mi") "mi" else "km" }

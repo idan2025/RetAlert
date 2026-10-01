@@ -12,6 +12,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.qualifiers.ApplicationContext
 import network.retalert.app.MainActivity
 import network.retalert.app.R
+import network.retalert.domain.AlarmSound
 import network.retalert.domain.IncomingMessage
 import network.retalert.domain.SettingsRepository
 import network.retalert.reticulum.IncomingNotifier
@@ -38,9 +39,12 @@ class AlertNotifier @Inject constructor(
     }
 
     override fun onAlert(msg: IncomingMessage) {
-        val override = runCatching { settings.load().alarmOverrideSilent }.getOrDefault(true)
+        val s = runCatching { settings.load() }.getOrNull()
+        val override = s?.alarmOverrideSilent ?: true
         // Ring first: a phone with notifications blocked still gets the alarm.
-        if (override) alarm.start(msg)
+        if (override) {
+            alarm.start(msg, s?.alarmSound ?: AlarmSound.DEFAULT, s?.alarmVolumePercent ?: AlarmSound.DEFAULT_VOLUME_PERCENT)
+        }
         post(msg, ringing = override, updateOnly = false)
     }
 
