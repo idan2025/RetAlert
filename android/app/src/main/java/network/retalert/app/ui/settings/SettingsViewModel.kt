@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import android.content.Context
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import network.retalert.app.platform.AlertNotifier
 import network.retalert.app.platform.AppRestarter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,7 @@ import network.retalert.domain.ANNOUNCE_PRESETS
 import network.retalert.domain.ANNOUNCE_PRESET_VALUES
 import network.retalert.domain.DEFAULT_SHARED_INSTANCE_PORT
 import network.retalert.domain.HardwareKeyManager
+import network.retalert.domain.IncomingMessage
 import network.retalert.domain.KeyCombo
 import network.retalert.domain.KeyComboRepository
 import network.retalert.domain.PresetRepository
@@ -32,8 +34,8 @@ data class SettingsUiState(
     val units: String = "km",
     val allow: List<String> = emptyList(),
     val deny: List<String> = emptyList(),
-    val autoInterface: Boolean = true,
-    val tcpInterfaces: List<String> = emptyList(),
+    /** "3 of 4 interfaces on" style summary for the Connection section. */
+    val interfaceSummary: String = "",
     val useSharedInstance: Boolean = true,
     val sharedInstancePort: Int = DEFAULT_SHARED_INSTANCE_PORT,
     /** Currently attached as a client to another app's instance. */
@@ -49,11 +51,12 @@ data class SettingsUiState(
     val autoAnnounce: Boolean = false,
     val announceInterval: Double = ANNOUNCE_MIN_INTERVAL,
     val keyCombos: List<KeyCombo> = emptyList(),
+    val alarmOverrideSilent: Boolean = true,
     val flash: String = "",
 )
 
-/** Settings screen: network interfaces (AutoInterface on/off, TCP clients),
- *  announce (now / auto + interval), receive-only-from-contacts, per-sender
+/** Settings screen: connection (shared instance; interfaces live on their
+ *  own screen), alarm behaviour, announce (now / auto + interval), receive-only-from-contacts, per-sender
  *  allow/deny, distance units, and hardware key-combo registration.
  *
  *  All repository access runs on [Dispatchers.IO]; each change re-reads the
@@ -66,6 +69,7 @@ class SettingsViewModel @Inject constructor(
     private val engine: ReticulumEngine,
     @ApplicationContext private val appContext: Context,
     private val presets: PresetRepository,
+    private val alertNotifier: AlertNotifier,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -98,8 +102,8 @@ class SettingsViewModel @Inject constructor(
             units = s.distanceUnits,
             allow = s.allowlist.sorted(),
             deny = s.denylist.sorted(),
-            autoInterface = s.autoInterface,
-            tcpInterfaces = s.tcpInterfaces.toList(),
+            interfaceSummary = s.interfaces.let { l -> "${l.count { it.enabled }} of ${l.size} on" },
+            alarmOverrideSilent = s.alarmOverrideSilent,
             useSharedInstance = s.useSharedInstance,
             panicShareLocation = s.panicShareLocation,
             liveShareIntervalS = s.liveShareIntervalS,
@@ -141,35 +145,21 @@ class SettingsViewModel @Inject constructor(
     fun setLiveShareInterval(seconds: Double) = mutate { it.liveShareIntervalS = seconds; null }
     fun setLiveShareMinutes(minutes: Int) = mutate { it.liveShareMinutes = minutes; null }
 
-    // -- interfaces (applied to the running stack immediately) -------------
+    fun setAlarmOverrideSilent(v: Boolean) = mutate { it.alarmOverrideSilent = v; null }
 
-    fun setAutoInterface(enabled: Boolean) = viewModelScope.launch(Dispatchers.IO) {
-        val s = settingsRepo.load()
-        s.autoInterface = enabled
-        settingsRepo.save(s)
-        runCatching { engine.reloadInterfaces() }
-        publish(s, if (enabled) "AutoInterface added" else "AutoInterface removed")
+    /** Ring a local fake alert exactly as a real one would. */
+    fun testAlarm() = viewModelScope.launch(Dispatchers.IO) {
+        alertNotifier.onAlert(
+            IncomingMessage(
+                sourceHash = "0".repeat(32), text = "Test alert — this is how an incoming alert rings.",
+                timestamp = System.currentTimeMillis() / 1000.0, kind = "alert", severity = "test",
+                alertId = "test-alarm",
+            ),
+        )
     }
 
-    fun addTcpInterface(spec: String) = viewModelScope.launch(Dispatchers.IO) {
-        val s = settingsRepo.load()
-        val added = s.addTcpInterface(spec)
-        if (added == null) {
-            _state.update { it.copy(flash = "invalid address: use host:port (e.g. 10.0.0.5:4242)") }
-            return@launch
-        }
-        settingsRepo.save(s)
-        runCatching { engine.reloadInterfaces() }
-        publish(s, "TCP interface $added added")
-    }
-
-    fun removeTcpInterface(spec: String) = viewModelScope.launch(Dispatchers.IO) {
-        val s = settingsRepo.load()
-        s.removeTcpInterface(spec)
-        settingsRepo.save(s)
-        runCatching { engine.reloadInterfaces() }
-        publish(s, "TCP interface $spec removed")
-    }
+    /** Re-read after returning from the Interfaces screen. */
+    fun refresh() = viewModelScope.launch(Dispatchers.IO) { publish(settingsRepo.load()) }
 
     // -- shared instance (Columba, Sideband, MeshChat …) --------------------
 

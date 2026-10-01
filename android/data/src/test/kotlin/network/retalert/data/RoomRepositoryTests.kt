@@ -4,7 +4,11 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import network.retalert.domain.Alert
 import network.retalert.domain.Preset
+import network.retalert.domain.IfaceConfig
+import network.retalert.domain.IfaceParam
+import network.retalert.domain.IfaceType
 import network.retalert.domain.Settings
+import network.retalert.domain.defaultParams
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -125,6 +129,26 @@ class RoomRepositoryTests {
         assertEquals("mi", loaded.distanceUnits)
         assertTrue(loaded.allowlist.contains("abc"))
         assertTrue(loaded.denylist.contains("def"))
+    }
+
+    @Test fun settings_migrate_legacy_interfaces_and_roundtrip_new_list() {
+        // A v0.1.0 snapshot: AutoInterface off + one TCP client, no "interfaces" key.
+        db.settingsDao().upsert(SettingsEntity(1, """{"autoInterface":false,"tcpInterfaces":["rns.example.org:4965"]}"""))
+        val repo = RoomSettingsRepository(db.settingsDao())
+        val migrated = repo.load()
+        assertEquals(listOf(IfaceType.AUTO, IfaceType.TCP_CLIENT), migrated.interfaces.map { it.type })
+        assertFalse(migrated.interfaces[0].enabled)
+        assertEquals("rns.example.org", migrated.interfaces[1].param(IfaceParam.HOST))
+        assertTrue(migrated.alarmOverrideSilent)
+
+        val rnode = IfaceConfig("r1", IfaceType.RNODE, "LoRa", params = defaultParams(IfaceType.RNODE) + (IfaceParam.BT_ADDRESS to "AA:BB:CC:DD:EE:FF"))
+        assertEquals(null, migrated.upsertInterface(rnode))
+        migrated.alarmOverrideSilent = false
+        repo.save(migrated)
+        val loaded = repo.load()
+        assertEquals(3, loaded.interfaces.size)
+        assertEquals(rnode, loaded.interfaces.last())
+        assertFalse(loaded.alarmOverrideSilent)
     }
 
     @Test fun starred_star_unstar() {

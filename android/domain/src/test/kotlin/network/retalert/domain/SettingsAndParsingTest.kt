@@ -1,6 +1,7 @@
 package network.retalert.domain
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -31,15 +32,33 @@ class SettingsAndParsingTest {
         assertNull(parseTcpSpec(":4242"))
     }
 
-    @Test fun `settings default to AutoInterface on and dedupe TCP interfaces`() {
+    @Test fun `settings default to AutoInterface on and validate interfaces`() {
         val s = Settings()
-        assertTrue(s.autoInterface)
-        assertEquals("a.b:1", s.addTcpInterface("a.b:1"))
-        s.addTcpInterface("a.b:1")
-        assertEquals(listOf("a.b:1"), s.tcpInterfaces)
-        assertNull(s.addTcpInterface("nope"))
-        assertTrue(s.removeTcpInterface("a.b:1"))
-        assertTrue(s.tcpInterfaces.isEmpty())
+        assertEquals(listOf(IfaceType.AUTO), s.interfaces.map { it.type })
+        assertTrue(s.interfaces.single().enabled)
+        val tcp = IfaceConfig("t1", IfaceType.TCP_CLIENT, "Hub", params = mapOf(IfaceParam.HOST to "a.b", IfaceParam.PORT to "4242"))
+        assertNull(s.upsertInterface(tcp))
+        assertNull(s.upsertInterface(tcp.copy(name = "Hub 2")))   // same id replaces
+        assertEquals(2, s.interfaces.size)
+        assertEquals("Hub 2", s.interfaces.last().name)
+        assertEquals("Port must be a port number (1–65535)", s.upsertInterface(tcp.copy(id = "t2", params = mapOf(IfaceParam.HOST to "a.b"))))
+        assertEquals("only one AutoInterface (LAN) interface is supported", s.upsertInterface(IfaceConfig("a2", IfaceType.AUTO, "x")))
+        assertTrue(s.setInterfaceEnabled("t1", false))
+        assertFalse(s.interfaces.last().enabled)
+        assertTrue(s.removeInterface("t1"))
+        assertEquals(1, s.interfaces.size)
+    }
+
+    @Test fun `rnode validation and legacy migration`() {
+        val ok = IfaceConfig("r", IfaceType.RNODE, "LoRa", params = defaultParams(IfaceType.RNODE) + (IfaceParam.BT_ADDRESS to "AA:BB:CC:DD:EE:FF"))
+        assertNull(validateIface(ok))
+        assertEquals("pick a paired RNode", validateIface(ok.copy(params = defaultParams(IfaceType.RNODE))))
+        assertEquals("spreading factor must be 5–12", validateIface(ok.copy(params = ok.params + (IfaceParam.SF to "13"))))
+        val migrated = legacyInterfaces(autoInterface = false, tcpSpecs = listOf("rns.example.org:4965", "bad"))
+        assertEquals(listOf(IfaceType.AUTO, IfaceType.TCP_CLIENT), migrated.map { it.type })
+        assertFalse(migrated[0].enabled)
+        assertEquals("rns.example.org", migrated[1].param(IfaceParam.HOST))
+        assertEquals(4965, migrated[1].intParam(IfaceParam.PORT))
     }
 
     @Test fun `geo body round-trips through the parser`() {

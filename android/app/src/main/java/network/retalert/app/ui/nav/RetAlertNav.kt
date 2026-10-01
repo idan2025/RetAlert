@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MoreHoriz
@@ -41,6 +42,7 @@ import androidx.navigation.compose.rememberNavController
 import network.retalert.app.ui.contacts.ContactsScreen
 import network.retalert.app.ui.home.HomeScreen
 import network.retalert.app.ui.inbox.InboxScreen
+import network.retalert.app.ui.interfaces.InterfacesScreen
 import network.retalert.app.ui.map.MapScreen
 import network.retalert.app.ui.outbox.OutboxScreen
 import network.retalert.app.ui.presets.PresetsScreen
@@ -61,7 +63,8 @@ enum class SubDest(val route: String, val label: String, val subtitle: String, v
     Send("send", "Send alert", "Write a custom alert to a contact or group", Icons.AutoMirrored.Filled.Send),
     Outbox("outbox", "Sent alerts", "Delivery and acknowledgement status", Icons.Filled.Outbox),
     Presets("presets", "Presets", "Saved alerts, including what Panic sends", Icons.Filled.Apps),
-    Settings("settings", "Settings", "Connection, location sharing, alerts, triggers", Icons.Filled.Settings),
+    Interfaces("interfaces", "Interfaces", "LAN, TCP, UDP, RNode LoRa, Bluetooth, I2P", Icons.Filled.Hub),
+    Settings("settings", "Settings", "Connection, alarm, location sharing, triggers", Icons.Filled.Settings),
 }
 
 @Composable
@@ -111,7 +114,10 @@ fun RetAlertApp() {
                 composable(SubDest.Send.route) { SendScreen(onBack = back) }
                 composable(SubDest.Outbox.route) { OutboxScreen(onBack = back) }
                 composable(SubDest.Presets.route) { PresetsScreen(onBack = back) }
-                composable(SubDest.Settings.route) { SettingsScreen(onBack = back) }
+                composable(SubDest.Settings.route) {
+                    SettingsScreen(onBack = back, onOpenInterfaces = { nav.navigate(SubDest.Interfaces.route) })
+                }
+                composable(SubDest.Interfaces.route) { InterfacesScreen(onBack = back) }
             }
         }
         if (wide) {
