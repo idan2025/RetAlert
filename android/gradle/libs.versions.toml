@@ -23,7 +23,9 @@ mockk = "1.14.4"
 robolectric = "4.15.1"
 androidxTestCore = "1.7.0"
 androidxTestRunner = "1.7.0"
-reticulumKt = "v0.0.22"
+# Pinned to main after v0.0.22 (security-divergence + resource-transfer fixes);
+# keep in step with RNS_KT in scripts/fetch-lxmf-kt.sh.
+reticulumKt = "3a4a696b9a"
 # LXMF-kt is consumed via composite build (../lxmf-kt), not JitPack. The
 # coordinate below matches the included build's published group
 # (com.github.torlando-tech.LXMF-kt); dependencySubstitution in
