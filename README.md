@@ -39,8 +39,14 @@ Download `app-release.apk` from the [latest release](../../releases), allow
   not be connected to the Meshtastic app at the same time.
 - Receive-only-from-contacts filter with per-address allow/block.
 
-Wire formats (`!RETALERT!` markers, `geo:` bodies) match the original Python
-app, so it interoperates with it and shows as readable text in other LXMF apps.
+Messages read normally in other LXMF apps: an alert arrives in Columba,
+Sideband or MeshChat as "🚨 CRITICAL ALERT" plus the message, with RetAlert's
+own data in LXMF's app fields (`FIELD_CUSTOM_TYPE` "retalert" /
+`FIELD_CUSTOM_DATA`). Live location uses the Sideband Telemeter format
+(`FIELD_TELEMETRY`), so it shows on their maps instead of in the chat — and
+locations they share show on RetAlert's map. Settings → Connection → "Old
+message format" sends the pre-0.4 `!RETALERT!` / `geo:` text for RetAlert 0.3
+and older and the original Python app; both formats are always understood.
 
 ## Build
 ```sh

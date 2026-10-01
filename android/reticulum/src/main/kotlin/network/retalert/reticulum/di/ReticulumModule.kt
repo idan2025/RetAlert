@@ -59,7 +59,8 @@ object ReticulumModule {
     fun provideRnsTransport(
         ackTracker: AckTracker,
         lxmf: LxmfRouter,
-    ): RnsTransport = RnsTransport(ackTracker, lxmf)
+        settings: network.retalert.domain.SettingsRepository,
+    ): RnsTransport = RnsTransport(ackTracker, lxmf) { runCatching { settings.load().legacyWire }.getOrDefault(false) }
 
     @Provides @Singleton
     fun provideRetryQueue(
@@ -93,7 +94,8 @@ object ReticulumModule {
         lxmf: LxmfRouter,
         inbox: network.retalert.domain.InboxRepository,
         notifier: IncomingNotifier,
-    ): IncomingWiring = IncomingWiring(ackTracker, lxmf, inbox, notifier)
+        settings: network.retalert.domain.SettingsRepository,
+    ): IncomingWiring = IncomingWiring(ackTracker, lxmf, inbox, notifier) { runCatching { settings.load().legacyWire }.getOrDefault(false) }
 
     @Provides @Singleton
     fun provideReticulumEngine(

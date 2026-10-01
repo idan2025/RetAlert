@@ -19,7 +19,6 @@ import kotlinx.coroutines.launch
 import network.retalert.domain.Fix
 import network.retalert.domain.FixSource
 import network.retalert.domain.RealClock
-import network.retalert.domain.encodeGeoBody
 import network.retalert.domain.liveShareInterval
 import network.retalert.reticulum.ReticulumEngine
 import network.retalert.reticulum.ReticulumService
@@ -152,7 +151,7 @@ class LocationSharer @Inject constructor(
         if (recipients.isEmpty()) return
         scope.launch {
             val fix = runCatching { fixSource.getFix() }.getOrNull() ?: return@launch
-            engine.sendGeo(recipients, encodeGeoBody(fix))
+            engine.sendGeo(recipients, fix)
             _state.update { it.copy(lastFix = fix) }
         }
     }
@@ -168,7 +167,7 @@ class LocationSharer @Inject constructor(
             Log.w(TAG, "no location fix this tick")
             return
         }
-        val n = engine.sendGeo(s.recipients, encodeGeoBody(fix))
+        val n = engine.sendGeo(s.recipients, fix, expiresAtMs = (s.untilEpoch * 1000).toLong())
         _state.update {
             it.copy(
                 lastFix = fix, lastSentEpoch = RealClock.nowEpoch(),

@@ -55,6 +55,9 @@ class Settings(
     var alarmVibrate: Boolean = true,
     /** How long an alert rings before it stops by itself. */
     var alarmMinutes: Int = AlarmSound.DEFAULT_RING_MINUTES,
+    /** Send the pre-0.4 `!RETALERT!` text format, for RetAlert 0.3 and older
+     *  and the Python app. Off: readable text + LXMF fields (see [Wire]). */
+    var legacyWire: Boolean = false,
 ) {
     /** Set distance units, normalising to km|mi. */
     fun applyDistanceUnits(units: String) { distanceUnits = if (units == "mi") "mi" else "km" }
