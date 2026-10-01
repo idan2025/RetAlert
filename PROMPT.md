@@ -366,7 +366,7 @@ URIs, msgpack media 6-tuple) — the `:domain` module is the parity boundary.
   Gradle 9.4.1 (wrapper), Compose BOM 2025.06.00, kotlinx.serialization 1.8.0,
   coroutines 1.10.2.
 - `compileSdk`/`targetSdk` 36, `minSdk` 26, `applicationId = network.retalert`,
-  `versionName = 0.2.1`. JVM target 17 for app/library code (JDK 21
+  `versionName = 0.3.0`. JVM target 17 for app/library code (JDK 21
   toolchain).
 - JDK 21 user-space toolchain via `android/env.sh` (exports `JAVA_HOME`,
   `ANDROID_HOME`, `PATH`). The Gradle daemon is stale under JDK 26, so
