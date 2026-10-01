@@ -97,7 +97,12 @@ class MeshtasticInterface(
             throw IOException("node did not send its configuration")
         }
         val ch = channelName
-        if (ch == null) throw IOException("channel $channelIndex is not enabled on the node")
+        if (ch == null) {
+            throw IOException(
+                "channel $channelIndex isn't set up on this node — add a secondary channel there " +
+                    "(same name and key on every node), or set the channel index to 0",
+            )
+        }
         Log.i(TAG, "$name: connected to node ${"%08x".format(myNode)} via ${link.description}, channel $channelIndex '${ch}', preset $modemPreset")
         lastError = null
         lastWrite = System.currentTimeMillis()
