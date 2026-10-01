@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Checkbox
 import androidx.compose.runtime.mutableFloatStateOf
 import network.retalert.domain.AlarmSound
 import androidx.core.app.NotificationManagerCompat
@@ -141,11 +142,24 @@ private fun AlarmSection(state: SettingsUiState, vm: SettingsViewModel) {
     }
 
     Section("Incoming alerts on this phone", "Make sure an alert reaches you with RetAlert closed and the phone silent.") {
-        SwitchItem(
+        CheckItem(
             "Ring through silent mode",
-            "Alerts ring as an alarm and vibrate, even in silent or vibrate mode, until you stop them.",
+            "Alerts ring as an alarm, even in silent or vibrate mode, until you stop them.",
             state.alarmOverrideSilent, vm::setAlarmOverrideSilent,
         )
+        CheckItem(
+            "Pop up over other apps",
+            "Open the alert full screen over whatever app you're using, not just a notification.",
+            state.alertPopup, vm::setAlertPopup,
+        )
+        CheckItem(
+            "Show on the lock screen",
+            "Open the alert full screen when the phone is locked.",
+            state.alertLockScreen, vm::setAlertLockScreen,
+        )
+        CheckItem("Vibrate", "Alarm-strength vibration while the alert rings.", state.alarmVibrate, vm::setAlarmVibrate)
+        Text("Keep ringing for", style = MaterialTheme.typography.bodyLarge)
+        ChoiceChips(AlarmSound.RING_MINUTES.map { it to "$it min" }, state.alarmMinutes) { vm.setAlarmMinutes(it) }
         var pickingSound by remember { mutableStateOf(false) }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(end = 12.dp)) {
@@ -169,6 +183,14 @@ private fun AlarmSection(state: SettingsUiState, vm: SettingsViewModel) {
             IconButton(onClick = { vm.previewSound(state.alarmSound) }) { Icon(Icons.Filled.PlayArrow, "Preview at this volume") }
         }
         key(tick) {
+            if (state.alertPopup) {
+                val overlayOk = Settings.canDrawOverlays(ctx)
+                CheckRow(
+                    "Display over other apps", overlayOk,
+                    if (overlayOk) "Allowed — alerts pop up over any app"
+                    else "Needed for \"Pop up over other apps\" — without it you only get a notification",
+                ) { open(Settings.ACTION_MANAGE_OVERLAY_PERMISSION) }
+            }
             val notifOk = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
             CheckRow("Notifications", notifOk, if (notifOk) "Allowed" else "Blocked — alerts can't be shown") {
                 runCatching {
@@ -500,6 +522,18 @@ private fun Section(title: String, subtitle: String? = null, content: @Composabl
         if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall)
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+        }
+    }
+}
+
+/** A ✓ option: the whole row toggles it. */
+@Composable
+private fun CheckItem(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable { onChange(!checked) }, verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = checked, onCheckedChange = onChange)
+        Column(Modifier.weight(1f).padding(start = 4.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

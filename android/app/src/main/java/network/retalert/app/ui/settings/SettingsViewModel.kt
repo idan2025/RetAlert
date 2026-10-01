@@ -57,6 +57,10 @@ data class SettingsUiState(
     val alarmSound: String = AlarmSound.DEFAULT,
     val alarmSoundLabel: String = "",
     val alarmVolumePercent: Int = AlarmSound.DEFAULT_VOLUME_PERCENT,
+    val alertPopup: Boolean = true,
+    val alertLockScreen: Boolean = true,
+    val alarmVibrate: Boolean = true,
+    val alarmMinutes: Int = AlarmSound.DEFAULT_RING_MINUTES,
     val flash: String = "",
 )
 
@@ -113,6 +117,10 @@ class SettingsViewModel @Inject constructor(
             alarmSound = s.alarmSound,
             alarmSoundLabel = AlarmSound.label(s.alarmSound) ?: s.alarmSoundName.ifBlank { "Custom sound" },
             alarmVolumePercent = s.alarmVolumePercent,
+            alertPopup = s.alertPopup,
+            alertLockScreen = s.alertLockScreen,
+            alarmVibrate = s.alarmVibrate,
+            alarmMinutes = s.alarmMinutes,
             useSharedInstance = s.useSharedInstance,
             panicShareLocation = s.panicShareLocation,
             liveShareIntervalS = s.liveShareIntervalS,
@@ -166,13 +174,21 @@ class SettingsViewModel @Inject constructor(
     fun previewSound(value: String) = alarmPlayer.preview(value, _state.value.alarmVolumePercent)
 
     fun setAlarmVolume(percent: Int) = mutate { it.alarmVolumePercent = percent.coerceIn(10, 100); null }
+    fun setAlertPopup(v: Boolean) = mutate { it.alertPopup = v; null }
+    fun setAlertLockScreen(v: Boolean) = mutate { it.alertLockScreen = v; null }
+    fun setAlarmVibrate(v: Boolean) = mutate { it.alarmVibrate = v; null }
+    fun setAlarmMinutes(minutes: Int) = mutate { it.alarmMinutes = minutes.coerceIn(1, 60); null }
     fun stopPreview() = alarmPlayer.stopPreview()
     fun flash(msg: String) = _state.update { it.copy(flash = msg) }
 
     override fun onCleared() { alarmPlayer.stopPreview() }
 
-    /** Ring a local fake alert exactly as a real one would. */
+    /** Ring a local fake alert exactly as a real one would, after a few
+     *  seconds so the user can switch to another app (or lock the phone) and
+     *  see how it pops up there. */
     fun testAlarm() = viewModelScope.launch(Dispatchers.IO) {
+        _state.update { it.copy(flash = "Test alert in 5 s — switch to another app or lock the phone to see it pop up") }
+        kotlinx.coroutines.delay(5_000)
         alertNotifier.onAlert(
             IncomingMessage(
                 sourceHash = "0".repeat(32), text = "Test alert — this is how an incoming alert rings.",

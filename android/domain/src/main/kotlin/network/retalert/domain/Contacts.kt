@@ -48,6 +48,13 @@ class Settings(
     var alarmSoundName: String = "",
     /** Alarm-stream volume an alert rings at, percent of the maximum. */
     var alarmVolumePercent: Int = AlarmSound.DEFAULT_VOLUME_PERCENT,
+    /** Pop the alert up full screen over whatever app is open (needs "Display over other apps"). */
+    var alertPopup: Boolean = true,
+    /** Open the alert full screen over the lock screen. */
+    var alertLockScreen: Boolean = true,
+    var alarmVibrate: Boolean = true,
+    /** How long an alert rings before it stops by itself. */
+    var alarmMinutes: Int = AlarmSound.DEFAULT_RING_MINUTES,
 ) {
     /** Set distance units, normalising to km|mi. */
     fun applyDistanceUnits(units: String) { distanceUnits = if (units == "mi") "mi" else "km" }

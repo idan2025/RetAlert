@@ -30,6 +30,9 @@
     <!-- Incoming alerts ring as an alarm: lower DND to "alarms only" while ringing,
          keep the listener alive in Doze, and restart it after a reboot. -->
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <!-- "Display over other apps": lets an incoming alert open full screen over
+         whatever app is in use (a background app can't start an activity otherwise). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
