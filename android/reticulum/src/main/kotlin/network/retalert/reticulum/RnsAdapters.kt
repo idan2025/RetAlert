@@ -56,6 +56,28 @@ fun InterfaceRef.toIfaceDescriptor(): IfaceDescriptor = IfaceDescriptor(
  * recipient stays SENT and the next retry interval sends again (bounded by the
  * alert's maxAttempts).
  */
+/**
+ * Rate-limited path requests. Alerts retry every few seconds and each retry
+ * would broadcast a path request on every interface; over LoRa (one packet
+ * per several seconds) that alone fills the airtime. Python RNS likewise
+ * refuses to answer path requests for one destination more often than
+ * every 20 s (Transport.PATH_REQUEST_MI).
+ */
+object PathRequests {
+    private const val MIN_INTERVAL_MS = 20_000L
+    private val last = ConcurrentHashMap<String, Long>()
+
+    fun request(hash: ByteArray) {
+        val key = hash.toHexString()
+        val now = System.currentTimeMillis()
+        val prev = last[key]
+        if (prev != null && now - prev < MIN_INTERVAL_MS) return
+        last[key] = now
+        if (last.size > 512) last.entries.removeIf { now - it.value > MIN_INTERVAL_MS }
+        runCatching { Transport.requestPath(hash) }
+    }
+}
+
 class RnsTransport(
     private val ackTracker: network.retalert.domain.AckTracker,
     private val lxmf: network.retalert.reticulum.lxmf.LxmfRouter,
@@ -84,7 +106,7 @@ class RnsTransport(
         val hashBytes = runCatching { hash.hexToByteArray() }.getOrNull()
             ?: throw IllegalArgumentException("invalid destination hash $recipientHex")
         if (!Transport.hasPath(hashBytes)) {
-            runCatching { Transport.requestPath(hashBytes) }
+            PathRequests.request(hashBytes)
             throw RetryableTransportException("no path/announce yet to $recipientHex")
         }
         val k = key(alert.alertId, recipientHex)

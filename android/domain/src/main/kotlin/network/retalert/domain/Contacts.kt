@@ -24,10 +24,9 @@ class Settings(
     var allowlist: MutableSet<String> = mutableSetOf(),
     var denylist: MutableSet<String> = mutableSetOf(),
     var distanceUnits: String = "km",   // "km" | "mi"
-    /** LAN AutoInterface (IPv6 multicast peer discovery). On by default. */
-    var autoInterface: Boolean = true,
-    /** TCP client interfaces as "host:port" entries (e.g. a transport node). */
-    var tcpInterfaces: MutableList<String> = mutableListOf(),
+    /** Interfaces of RetAlert's own stack (Interfaces screen). AutoInterface
+     *  on by default. Unused while attached to a shared instance. */
+    var interfaces: MutableList<IfaceConfig> = defaultInterfaces(),
     /** Attach to another app's shared RNS instance (Columba, Sideband…) on
      *  127.0.0.1:[sharedInstancePort] when one is listening; else run standalone. */
     var useSharedInstance: Boolean = true,
@@ -40,6 +39,9 @@ class Settings(
     var liveShareMinutes: Int = 60,
     var autoAnnounce: Boolean = false,
     var announceInterval: Double = ANNOUNCE_MIN_INTERVAL,
+    /** Incoming alerts ring as an alarm: alarm stream at full volume plus
+     *  vibration, through silent / vibrate mode and Do Not Disturb. */
+    var alarmOverrideSilent: Boolean = true,
 ) {
     /** Set distance units, normalising to km|mi. */
     fun applyDistanceUnits(units: String) { distanceUnits = if (units == "mi") "mi" else "km" }
@@ -52,14 +54,28 @@ class Settings(
         val h = hashHex.lowercase().trim()
         denylist.add(h); allowlist.remove(h)
     }
-    /** Add a TCP client interface. Returns the normalised "host:port", or null if invalid. */
-    fun addTcpInterface(spec: String): String? {
-        val norm = normalizeTcpSpec(spec) ?: return null
-        if (norm !in tcpInterfaces) tcpInterfaces.add(norm)
-        return norm
+    /** Add or replace (by id) an interface. Returns a user-facing error, or null. */
+    fun upsertInterface(c: IfaceConfig): String? {
+        validateIface(c)?.let { return it }
+        if (c.type in IfaceType.SINGLETON && interfaces.any { it.type == c.type && it.id != c.id }) {
+            return "only one ${IfaceType.label(c.type)} interface is supported"
+        }
+        if (interfaces.any { it.id != c.id && it.name.trim().equals(c.name.trim(), ignoreCase = true) }) {
+            return "another interface is already called '${c.name.trim()}'"
+        }
+        val i = interfaces.indexOfFirst { it.id == c.id }
+        if (i >= 0) interfaces[i] = c else interfaces.add(c)
+        return null
     }
 
-    fun removeTcpInterface(spec: String): Boolean = tcpInterfaces.remove(spec)
+    fun removeInterface(id: String): Boolean = interfaces.removeAll { it.id == id }
+
+    fun setInterfaceEnabled(id: String, enabled: Boolean): Boolean {
+        val i = interfaces.indexOfFirst { it.id == id }
+        if (i < 0) return false
+        interfaces[i] = interfaces[i].copy(enabled = enabled)
+        return true
+    }
 
     fun forget(hashHex: String) {
         val h = hashHex.lowercase().trim()

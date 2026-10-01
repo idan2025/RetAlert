@@ -24,7 +24,7 @@ object PlatformModule {
     fun provideFixSource(@ApplicationContext ctx: Context): FixSource = FusedLocationSource(ctx)
 
     @Provides @Singleton
-    fun provideIncomingNotifier(@ApplicationContext ctx: Context): IncomingNotifier = AlertNotifier(ctx)
+    fun provideIncomingNotifier(notifier: AlertNotifier): IncomingNotifier = notifier
 
     /** Key events arrive on the main thread; the fire (DB + mesh send) runs on
      *  a worker thread. */

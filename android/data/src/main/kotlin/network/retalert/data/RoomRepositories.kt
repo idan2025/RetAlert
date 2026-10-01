@@ -212,13 +212,24 @@ class RoomSettingsRepository(
 ) : network.retalert.domain.SettingsRepository {
 
     @kotlinx.serialization.Serializable
+    private data class IfaceSnap(
+        val id: String,
+        val type: String,
+        val name: String,
+        val enabled: Boolean = true,
+        val params: Map<String, String> = emptyMap(),
+    )
+
+    @kotlinx.serialization.Serializable
     private data class Snapshot(
         val receiveOnlyFromContacts: Boolean = true,
         val allowlist: List<String> = emptyList(),
         val denylist: List<String> = emptyList(),
         val distanceUnits: String = "km",
+        // Pre-Interfaces-screen fields: read once to migrate into [interfaces].
         val autoInterface: Boolean = true,
         val tcpInterfaces: List<String> = emptyList(),
+        val interfaces: List<IfaceSnap>? = null,
         val useSharedInstance: Boolean = true,
         val sharedInstancePort: Int = network.retalert.domain.DEFAULT_SHARED_INSTANCE_PORT,
         val panicShareLocation: Boolean = true,
@@ -226,6 +237,7 @@ class RoomSettingsRepository(
         val liveShareMinutes: Int = 60,
         val autoAnnounce: Boolean = false,
         val announceInterval: Double = network.retalert.domain.ANNOUNCE_MIN_INTERVAL,
+        val alarmOverrideSilent: Boolean = true,
     )
 
     override fun load(): Settings {
@@ -236,8 +248,10 @@ class RoomSettingsRepository(
             allowlist = s.allowlist.toMutableSet(),
             denylist = s.denylist.toMutableSet(),
             distanceUnits = s.distanceUnits,
-            autoInterface = s.autoInterface,
-            tcpInterfaces = s.tcpInterfaces.toMutableList(),
+            interfaces = s.interfaces
+                ?.map { network.retalert.domain.IfaceConfig(it.id, it.type, it.name, it.enabled, it.params) }
+                ?.toMutableList()
+                ?: network.retalert.domain.legacyInterfaces(s.autoInterface, s.tcpInterfaces),
             useSharedInstance = s.useSharedInstance,
             sharedInstancePort = s.sharedInstancePort,
             panicShareLocation = s.panicShareLocation,
@@ -245,6 +259,7 @@ class RoomSettingsRepository(
             liveShareMinutes = s.liveShareMinutes,
             autoAnnounce = s.autoAnnounce,
             announceInterval = s.announceInterval,
+            alarmOverrideSilent = s.alarmOverrideSilent,
         )
     }
 
@@ -254,8 +269,7 @@ class RoomSettingsRepository(
             allowlist = settings.allowlist.toList(),
             denylist = settings.denylist.toList(),
             distanceUnits = settings.distanceUnits,
-            autoInterface = settings.autoInterface,
-            tcpInterfaces = settings.tcpInterfaces.toList(),
+            interfaces = settings.interfaces.map { IfaceSnap(it.id, it.type, it.name, it.enabled, it.params) },
             useSharedInstance = settings.useSharedInstance,
             sharedInstancePort = settings.sharedInstancePort,
             panicShareLocation = settings.panicShareLocation,
@@ -263,6 +277,7 @@ class RoomSettingsRepository(
             liveShareMinutes = settings.liveShareMinutes,
             autoAnnounce = settings.autoAnnounce,
             announceInterval = settings.announceInterval,
+            alarmOverrideSilent = settings.alarmOverrideSilent,
         )
         dao.upsert(SettingsEntity(1, json.encodeToString(Snapshot.serializer(), s)))
     }

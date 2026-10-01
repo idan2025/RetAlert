@@ -22,10 +22,20 @@ Download `app-release.apk` from the [latest release](../../releases), allow
 - **Map**: people sharing with you, their trails, distance and bearing,
   tap-to-follow, offline map download.
 - **Delivery tracking**: per-recipient sent / delivered / acked / replied;
-  receivers ack or reply from the Inbox. Incoming alerts bypass Do Not Disturb.
-- **Connection**: AutoInterface (LAN/Wi-Fi peers, on by default), TCP
-  connections to Reticulum nodes, or a **shared instance** from Columba,
-  Sideband or MeshChat on the same phone.
+  receivers ack or reply from the Inbox.
+- **Alerts ring like an alarm**: full volume on the alarm stream with
+  vibration, through silent / vibrate mode and Do Not Disturb, over the lock
+  screen, until you stop them. The listener restarts after a reboot. Settings
+  has a checklist (notifications, DND access, battery) and a test alarm.
+- **Interfaces screen**: AutoInterface (LAN), TCP client and server, UDP,
+  **RNode** LoRa over Bluetooth, **Meshtastic** nodes (Bluetooth or Wi-Fi),
+  Bluetooth LE mesh and I2P — or a **shared instance** from Columba, Sideband
+  or MeshChat on the same phone.
+- **RNS over Meshtastic**: a native port of
+  [RNS_Over_Meshtastic](https://github.com/landandair/RNS_Over_Meshtastic),
+  wire-compatible with its Python interface. Put it on a private secondary
+  channel with a low hop limit so it stays off the public mesh. The node must
+  not be connected to the Meshtastic app at the same time.
 - Receive-only-from-contacts filter with per-address allow/block.
 
 Wire formats (`!RETALERT!` markers, `geo:` bodies) match the original Python
@@ -33,8 +43,7 @@ app, so it interoperates with it and shows as readable text in other LXMF apps.
 
 ## Build
 ```sh
-git clone --depth 1 --branch v0.0.14 https://github.com/torlando-tech/LXMF-kt lxmf-kt
-sed -i 's/^include(":lxmf-examples")$/if (System.getenv("INCLUDE_EXAMPLES") != null) { include(":lxmf-examples") }/' lxmf-kt/settings.gradle.kts
+./scripts/fetch-lxmf-kt.sh                         # LXMF-kt composite build, pinned commit
 cd android && ./gradlew :app:assembleDebug        # JDK 21 + Android SDK 36
 ./gradlew :domain:test :data:test :reticulum:test :updater:test
 ```

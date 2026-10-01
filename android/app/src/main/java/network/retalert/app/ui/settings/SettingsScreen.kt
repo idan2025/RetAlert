@@ -3,6 +3,17 @@
 package network.retalert.app.ui.settings
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.app.NotificationManager
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -62,8 +73,13 @@ private val ANNOUNCE_CHOICES = listOf(1800.0 to "30 min", 3600.0 to "1 h", 7200.
 private val KEY_LABELS = mapOf("volume_up" to "Vol +", "volume_down" to "Vol −")
 
 @Composable
-fun SettingsScreen(onBack: (() -> Unit)? = null, vm: SettingsViewModel = hiltViewModel()) {
+fun SettingsScreen(
+    onBack: (() -> Unit)? = null,
+    onOpenInterfaces: () -> Unit = {},
+    vm: SettingsViewModel = hiltViewModel(),
+) {
     val state by vm.state.collectAsStateWithLifecycle()
+    LifecycleResumeEffect(Unit) { vm.refresh(); onPauseOrDispose {} }
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(state.flash) {
         if (state.flash.isNotEmpty()) {
@@ -80,8 +96,9 @@ fun SettingsScreen(onBack: (() -> Unit)? = null, vm: SettingsViewModel = hiltVie
             Modifier.fillMaxSize().padding(inner).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            AlarmSection(state, vm)
             EmergencySection(state, vm)
-            ConnectionSection(state, vm)
+            ConnectionSection(state, vm, onOpenInterfaces)
             AnnounceSection(state, vm)
             IncomingSection(state, vm)
             HardwareSection(state, vm)
@@ -97,6 +114,79 @@ fun SettingsScreen(onBack: (() -> Unit)? = null, vm: SettingsViewModel = hiltVie
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AlarmSection(state: SettingsUiState, vm: SettingsViewModel) {
+    val ctx = LocalContext.current
+    // Re-checked every time the screen resumes (the user comes back from system settings).
+    var tick by remember { mutableIntStateOf(0) }
+    LifecycleResumeEffect(Unit) { tick++; onPauseOrDispose {} }
+    val nm = remember { ctx.getSystemService(NotificationManager::class.java) }
+    val pm = remember { ctx.getSystemService(PowerManager::class.java) }
+    fun open(action: String, withPackage: Boolean = true) = runCatching {
+        ctx.startActivity(Intent(action).apply { if (withPackage) data = Uri.parse("package:${ctx.packageName}") })
+    }.recoverCatching {
+        ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
+    }
+
+    Section("Incoming alerts on this phone", "Make sure an alert reaches you with RetAlert closed and the phone silent.") {
+        SwitchItem(
+            "Ring through silent mode",
+            "Alerts ring as an alarm at full volume and vibrate, even in silent or vibrate mode, until you stop them.",
+            state.alarmOverrideSilent, vm::setAlarmOverrideSilent,
+        )
+        key(tick) {
+            val notifOk = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+            CheckRow("Notifications", notifOk, if (notifOk) "Allowed" else "Blocked — alerts can't be shown") {
+                runCatching {
+                    ctx.startActivity(
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName),
+                    )
+                }
+            }
+            val dndOk = nm?.isNotificationPolicyAccessGranted == true
+            CheckRow(
+                "Do Not Disturb override", dndOk,
+                if (dndOk) "Allowed — DND is lowered to \"alarms only\" while an alert rings"
+                else "Needed to ring when DND is set to total silence",
+            ) { open(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS, withPackage = false) }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                val fsiOk = nm?.canUseFullScreenIntent() == true
+                CheckRow(
+                    "Show over the lock screen", fsiOk,
+                    if (fsiOk) "Allowed" else "Needed so an alert opens full screen on a locked phone",
+                ) { open(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT) }
+            }
+            val batteryOk = pm?.isIgnoringBatteryOptimizations(ctx.packageName) == true
+            CheckRow(
+                "Run in the background", batteryOk,
+                if (batteryOk) "Unrestricted — the mesh listener keeps running"
+                else "Battery optimisation may stop RetAlert and you'd miss alerts",
+            ) {
+                @SuppressLint("BatteryLife")
+                val a = Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                open(a)
+            }
+        }
+        OutlinedButton(onClick = vm::testAlarm, modifier = Modifier.fillMaxWidth()) { Text("Test alarm") }
+    }
+}
+
+@Composable
+private fun CheckRow(title: String, ok: Boolean, detail: String, onFix: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            if (ok) Icons.Filled.CheckCircle else Icons.Filled.Warning, null,
+            tint = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(end = 12.dp),
+        )
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(detail, style = MaterialTheme.typography.bodySmall)
+        }
+        if (!ok) OutlinedButton(onClick = onFix) { Text("Fix") }
     }
 }
 
@@ -150,8 +240,7 @@ private fun BackgroundLocationRow() {
 }
 
 @Composable
-private fun ConnectionSection(state: SettingsUiState, vm: SettingsViewModel) {
-    var tcpSpec by remember { mutableStateOf("") }
+private fun ConnectionSection(state: SettingsUiState, vm: SettingsViewModel, onOpenInterfaces: () -> Unit) {
     Section("Connection", "How RetAlert reaches the Reticulum network.") {
         StatusLine(
             when {
@@ -183,29 +272,16 @@ private fun ConnectionSection(state: SettingsUiState, vm: SettingsViewModel) {
             }
         }
         HorizontalDivider()
-        Text(
-            if (state.sharedInstance) "Own interfaces (used when not on a shared instance)" else "Own interfaces",
-            style = MaterialTheme.typography.titleSmall,
-        )
-        SwitchItem("AutoInterface", "Find RetAlert/Reticulum peers on the same Wi-Fi or LAN automatically.", state.autoInterface, vm::setAutoInterface)
-        Text("TCP connections", style = MaterialTheme.typography.bodyLarge)
-        if (state.tcpInterfaces.isEmpty()) Text("None — add a Reticulum node to reach the wider network.", style = MaterialTheme.typography.bodySmall)
-        state.tcpInterfaces.forEach { spec ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(spec, Modifier.weight(1f), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodyMedium)
-                IconButton(onClick = { vm.removeTcpInterface(spec) }) { Icon(Icons.Filled.Close, "Remove $spec") }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                Text("Interfaces", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "${state.interfaceSummary} — LAN, TCP, UDP, RNode, Bluetooth, I2P." +
+                        if (state.sharedInstance) " Not used while on a shared instance." else "",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = tcpSpec,
-                onValueChange = { tcpSpec = it },
-                label = { Text("host:port") },
-                placeholder = { Text("rns.example.org:4242") },
-                modifier = Modifier.weight(1f).padding(end = 8.dp),
-                singleLine = true,
-            )
-            OutlinedButton(onClick = { vm.addTcpInterface(tcpSpec); tcpSpec = "" }, enabled = tcpSpec.isNotBlank()) { Text("Add") }
+            OutlinedButton(onClick = onOpenInterfaces) { Text("Manage") }
         }
     }
 }

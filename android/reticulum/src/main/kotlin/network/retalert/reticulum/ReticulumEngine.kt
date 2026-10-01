@@ -19,21 +19,21 @@ import network.retalert.domain.Alert
 import network.retalert.domain.AnnounceEngine
 import network.retalert.domain.Contacts
 import network.retalert.domain.Discover
+import network.retalert.domain.IfaceConfig
+import network.retalert.domain.IfaceType
 import network.retalert.domain.LiveTrackStore
 import network.retalert.domain.RetryQueue
 import network.retalert.domain.Settings
 import network.retalert.domain.SettingsReceiveSettings
 import network.retalert.domain.TransportIntelligence
 import network.retalert.domain.normalizeHash
-import network.retalert.domain.parseTcpSpec
 import network.retalert.reticulum.lxmf.LxmfRouter
+import network.retalert.reticulum.meshtastic.MeshtasticInterface
 import network.reticulum.Reticulum
 import network.reticulum.identity.Identity
 import network.reticulum.interfaces.Interface
 import network.reticulum.interfaces.InterfaceAdapter
-import network.reticulum.interfaces.auto.AutoInterface
 import network.reticulum.interfaces.local.LocalClientInterface
-import network.reticulum.interfaces.tcp.TCPClientInterface
 import network.reticulum.transport.Transport
 import java.io.File
 
@@ -49,6 +49,8 @@ data class EngineStatus(
     val sharedInstance: Boolean = false,
     val sharedPort: Int = 0,
     val interfaces: List<InterfaceStatus> = emptyList(),
+    /** Configured interface id -> why it is not running. */
+    val ifaceErrors: Map<String, String> = emptyMap(),
     val error: String = "",
 )
 
@@ -91,8 +93,13 @@ class ReticulumEngine(
     @Volatile private var running = false
     @Volatile private var sharedClient = false
 
-    /** Interfaces this engine created, keyed by their spec ("auto" or "host:port"). */
-    private val ownInterfaces = LinkedHashMap<String, Interface>()
+    /** Interfaces this engine created, keyed by config id, with the config
+     *  they were built from (a changed config rebuilds the interface). */
+    private val ownInterfaces = LinkedHashMap<String, Pair<IfaceConfig, Interface>>()
+    private val ifaceErrors = LinkedHashMap<String, String>()
+    private val ifaceStartedAt = HashMap<String, Long>()
+    private val factory = InterfaceFactory(context)
+    private var transportIdentityHash = ByteArray(16)
     private var multicastLock: WifiManager.MulticastLock? = null
 
     private val _status = MutableStateFlow(EngineStatus())
@@ -120,6 +127,7 @@ class ReticulumEngine(
         try {
             val settings = settingsRepo.load()
             val identity = loadOrCreateIdentity()
+            transportIdentityHash = identity.hash
             startReticulum(identity, settings)
             if (!sharedClient) applyInterfaces(settings)
             // Announce handler -> Discover cache (LXMF delivery only).
@@ -134,6 +142,7 @@ class ReticulumEngine(
             outboxRepo.unfinished().forEach { replay(it) }
             startRetryFlusher()
             startStatusPoller()
+            if (!sharedClient) startInterfaceWatchdog()
             // Announce now, and again once AutoInterface has had time to find peers.
             lxmf.announce()
             loops += scope.launch { delay(ANNOUNCE_SETTLE_MS); if (running) lxmf.announce() }
@@ -164,6 +173,7 @@ class ReticulumEngine(
         runCatching { lxmf.stop() }
         synchronized(lock) {
             ownInterfaces.keys.toList().forEach { detachInterface(it) }
+            ifaceErrors.clear()
         }
         releaseMulticastLock()
         runCatching { Reticulum.stop() }
@@ -205,7 +215,7 @@ class ReticulumEngine(
             val h = normalizeHash(r) ?: continue
             val bytes = h.hexToByteArray()
             if (!Transport.hasPath(bytes)) {
-                runCatching { Transport.requestPath(bytes) }
+                PathRequests.request(bytes)
                 continue
             }
             lxmf.sendMessage(h, body, opportunistic = true)
@@ -260,40 +270,73 @@ class ReticulumEngine(
         refreshStatus()
     }
 
-    private fun applyInterfaces(settings: Settings) = synchronized(lock) {
-        val wanted = buildList {
-            if (settings.autoInterface) add(AUTO_KEY)
-            addAll(settings.tcpInterfaces)
+    /** RNS name the engine gives the interface built from [c]. */
+    fun interfaceName(c: IfaceConfig): String = factory.rnsName(c)
+
+    /**
+     * Make the running interfaces match [settings]. With [retryOffline], also
+     * rebuild interfaces that failed to start or have dropped (an RNode out of
+     * Bluetooth range, a TCP server that refused us) so they come back by themselves.
+     */
+    private fun applyInterfaces(settings: Settings, retryOffline: Boolean = false) = synchronized(lock) {
+        val wanted = settings.interfaces.filter { it.enabled }.associateBy { it.id }
+        ownInterfaces.toList().forEach { (id, entry) ->
+            val (cfg, iface) = entry
+            val stale = wanted[id] != cfg
+            val settled = System.currentTimeMillis() - (ifaceStartedAt[id] ?: 0L) > IFACE_SETTLE_MS
+            val dropped = retryOffline && cfg.type in RECONNECTING && settled && !iface.online.value
+            if (stale || dropped) detachInterface(id)
         }
-        (ownInterfaces.keys - wanted.toSet()).forEach { detachInterface(it) }
-        for (key in wanted) {
-            if (key in ownInterfaces) continue
-            val iface = runCatching { createInterface(key) }
-                .onFailure { Log.w(TAG, "interface $key failed to start", it) }
-                .getOrNull() ?: continue
-            ownInterfaces[key] = iface
+        ifaceErrors.keys.retainAll(wanted.keys)
+        for ((id, cfg) in wanted) {
+            if (id in ownInterfaces) continue
+            runCatching { createInterface(cfg) }
+                .onSuccess {
+                    ownInterfaces[id] = cfg to it
+                    ifaceStartedAt[id] = System.currentTimeMillis()
+                    ifaceErrors.remove(id)
+                }
+                .onFailure {
+                    Log.w(TAG, "interface ${cfg.name} failed to start", it)
+                    ifaceErrors[id] = it.message ?: it.javaClass.simpleName
+                }
         }
-        if (AUTO_KEY in ownInterfaces) acquireMulticastLock() else releaseMulticastLock()
+        val needsMulticast = ownInterfaces.values.any { it.first.type == IfaceType.AUTO || it.first.type == IfaceType.UDP }
+        if (needsMulticast) acquireMulticastLock() else releaseMulticastLock()
+        _status.update { it.copy(ifaceErrors = ifaceErrors.toMap()) }
     }
 
-    private fun createInterface(key: String): Interface {
-        val iface: Interface = if (key == AUTO_KEY) {
-            AutoInterface(name = AUTO_NAME)
-        } else {
-            val (host, port) = parseTcpSpec(key) ?: error("bad TCP spec $key")
-            TCPClientInterface(name = "$TCP_PREFIX$key", targetHost = host, targetPort = port, keepAlive = true)
+    private fun createInterface(c: IfaceConfig): Interface {
+        val iface = factory.create(c, transportIdentityHash)
+        try {
+            iface.start()
+        } catch (e: Exception) {
+            runCatching { iface.detach() }
+            throw e
         }
-        iface.start()
         Transport.registerInterface(InterfaceAdapter.getOrCreate(iface))
         Log.i(TAG, "interface up: ${iface.name}")
         return iface
     }
 
-    private fun detachInterface(key: String) {
-        val iface = ownInterfaces.remove(key) ?: return
+    private fun detachInterface(id: String) {
+        val (_, iface) = ownInterfaces.remove(id) ?: return
+        ifaceStartedAt.remove(id)
         runCatching { Transport.deregisterInterface(InterfaceAdapter.getOrCreate(iface)) }
         runCatching { iface.detach() }
         Log.i(TAG, "interface down: ${iface.name}")
+    }
+
+    /** Periodically retry interfaces that failed or dropped. */
+    private fun startInterfaceWatchdog() {
+        loops += scope.launch {
+            while (running) {
+                delay(IFACE_RETRY_MS)
+                if (!running || sharedClient) break
+                runCatching { applyInterfaces(settingsRepo.load(), retryOffline = true) }
+                    .onFailure { Log.w(TAG, "interface watchdog", it) }
+            }
+        }
     }
 
     private fun acquireMulticastLock() {
@@ -361,7 +404,14 @@ class ReticulumEngine(
         val ifaces = runCatching {
             transportIntelligence.classifyInterfaces().map { InterfaceStatus(it.name, it.tier, it.online) }
         }.getOrDefault(emptyList())
-        _status.update { it.copy(interfaces = ifaces, deliveryHash = lxmf.deliveryHashHex) }
+        // Interfaces that reconnect by themselves report why they're down.
+        val runtime = synchronized(lock) {
+            ownInterfaces.mapNotNull { (id, e) ->
+                val m = e.second as? MeshtasticInterface ?: return@mapNotNull null
+                m.lastError?.takeIf { !m.online.value }?.let { id to it }
+            }.toMap() + ifaceErrors
+        }
+        _status.update { it.copy(interfaces = ifaces, ifaceErrors = runtime, deliveryHash = lxmf.deliveryHashHex) }
     }
 
     private fun loadOrCreateIdentity(): Identity {
@@ -406,7 +456,11 @@ class ReticulumEngine(
         private const val FLUSH_INTERVAL_MS = 1000L
         private const val STATUS_INTERVAL_MS = 3000L
         private const val ANNOUNCE_SETTLE_MS = 15_000L
-        private const val AUTO_KEY = "auto"
+        private const val IFACE_RETRY_MS = 30_000L
+        /** RNode detect + radio init takes a few seconds before it reports online. */
+        private const val IFACE_SETTLE_MS = 20_000L
+        /** Types whose link can drop and must be rebuilt (TCP clients reconnect by themselves). */
+        private val RECONNECTING = setOf(IfaceType.RNODE, IfaceType.I2P)
         const val AUTO_NAME = "AutoInterface"
         const val TCP_PREFIX = "TCP "
         const val SHARED_NAME = "SharedInstance"
