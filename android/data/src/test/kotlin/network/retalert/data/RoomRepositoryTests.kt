@@ -184,6 +184,29 @@ class RoomRepositoryTests {
         assertEquals(listOf("Coming", "Busy"), loaded.quickReplies)
     }
 
+    @Test fun chat_thread_add_state_and_observe() {
+        val chatDb = Room.inMemoryDatabaseBuilder(
+            ApplicationProvider.getApplicationContext(), ChatDatabase::class.java,
+        ).allowMainThreadQueries().build()
+        val repo = RoomChatRepository(chatDb.chatDao())
+        val changes = mutableListOf<String>()
+        val sub = repo.observe { changes += it }
+        val id = repo.add(network.retalert.domain.ChatMessage(alertId = "a1", peer = "AA", outgoing = true, text = "Coming", ts = 2.0, state = "sending", batch = 5))
+        repo.add(network.retalert.domain.ChatMessage(alertId = "a1", peer = "aa", outgoing = false, text = "Ok", ts = 3.0, state = "received"))
+        repo.add(network.retalert.domain.ChatMessage(alertId = "other", peer = "bb", outgoing = false, text = "x", ts = 1.0, state = "received"))
+        repo.setState(id, "delivered")
+        val t = repo.thread("a1")
+        assertEquals(listOf("Coming", "Ok"), t.map { it.text })
+        assertEquals("delivered", t[0].state)
+        assertEquals("aa", t[0].peer)
+        assertEquals(listOf("a1", "a1", "other", "a1"), changes)
+        sub.close()
+        repo.deleteThread("a1")
+        assertTrue(repo.thread("a1").isEmpty())
+        assertEquals(4, changes.size)                 // closed: no more callbacks
+        chatDb.close()
+    }
+
     @Test fun starred_star_unstar() {
         val repo = RoomStarredRepository(db.starredDao())
         assertTrue(repo.star("ABC"))

@@ -28,6 +28,12 @@ object DataModule {
             .fallbackToDestructiveMigration()
             .build()
 
+    @Provides @Singleton
+    fun provideChatRepository(@ApplicationContext ctx: Context): network.retalert.domain.ChatRepository =
+        RoomChatRepository(
+            Room.databaseBuilder(ctx, ChatDatabase::class.java, "retalert-chat.db").build().chatDao(),
+        )
+
     @Provides fun provideContactDao(db: RetAlertDatabase): ContactDao = db.contactDao()
     @Provides fun provideGroupDao(db: RetAlertDatabase): GroupDao = db.groupDao()
     @Provides fun providePresetDao(db: RetAlertDatabase): PresetDao = db.presetDao()

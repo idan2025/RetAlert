@@ -253,6 +253,9 @@ class ReticulumEngine(
         incomingWiring.sendReply(alertId, sourceHex, text)
     }
 
+    /** Send a message into an alert's chat thread. Returns how many peers it went to. */
+    fun sendChat(alertId: String, text: String): Int = incomingWiring.sendChat(alertId, text)
+
     /** Change the public name and announce it right away, so other apps
      *  pick it up without waiting for the next announce. */
     fun setDisplayName(name: String) {

@@ -49,16 +49,26 @@ class AlertNotifier @Inject constructor(
     }
 
     /** Someone replied to an alert we sent. */
-    override fun onReply(alertId: String, sourceHex: String, senderName: String, text: String) {
+    override fun onReply(alertId: String, sourceHex: String, senderName: String, text: String) =
+        conversationNotification(alertId, sourceHex, "$senderName replied", text)
+
+    /** A chat message in an alert's thread (not shown while that chat is open). */
+    override fun onChat(alertId: String, sourceHex: String, senderName: String, text: String) {
+        if (network.retalert.app.ui.chat.ChatVisibility.openAlertId == alertId) return
+        conversationNotification(alertId, sourceHex, "$senderName · alert chat", text)
+    }
+
+    /** Tapping it opens that alert's chat. */
+    private fun conversationNotification(alertId: String, sourceHex: String, title: String, text: String) {
         val mgr = NotificationManagerCompat.from(ctx)
         if (!mgr.areNotificationsEnabled()) return
         val open = PendingIntent.getActivity(
-            ctx, (alertId + sourceHex).hashCode(), activityIntent(),
+            ctx, (alertId + sourceHex).hashCode(), activityIntent().putExtra(MainActivity.EXTRA_OPEN_CHAT, alertId),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val notif = NotificationCompat.Builder(ctx, REPLY_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_alert)
-            .setContentTitle("$senderName replied")
+            .setContentTitle(title)
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setPriority(NotificationCompat.PRIORITY_HIGH)

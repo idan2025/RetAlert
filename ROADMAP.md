@@ -38,7 +38,7 @@ anything.
 Typing a 32-character address is error-prone. Show your own address as a QR
 code and scan others'. Read Columba's QR identity codes too.
 
-### Per-alert chat
+### Per-alert chat — ✅ done (0.5)
 An alert is one message plus one reply today. Give every alert a conversation
 thread — on the sender's and the receiver's side — so both can keep talking
 ("Where are you?" / "Ground floor, door is open"). Plain LXMF messages, so
@@ -72,7 +72,6 @@ left-to-right today because it is English-only).
 - **Real database migrations** — the Room database falls back to a destructive
   migration, so any schema change would wipe contacts, settings and history.
   Add proper migrations before the next schema change.
-
 - **Responder map** — show alert recipients who share their location back,
   with distance and ETA.
 - **Low-battery alert** — automatic alert with last location when the battery

@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import network.retalert.domain.IncomingMessage
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -39,6 +40,7 @@ fun AlarmOverlay(
     alarm: AlarmPlayer,
     replies: List<String> = emptyList(),
     onReply: (IncomingMessage, String) -> Unit = { _, _ -> },
+    onOpenChat: ((IncomingMessage) -> Unit)? = null,
 ) {
     val shown by alarm.shown.collectAsStateWithLifecycle()
     val ringing by alarm.ringing.collectAsStateWithLifecycle()
@@ -74,6 +76,11 @@ fun AlarmOverlay(
                         border = BorderStroke(2.dp, Color.White),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
                     ) { Text(r, fontSize = 20.sp, fontWeight = FontWeight.SemiBold) }
+                }
+                if (onOpenChat != null) {
+                    TextButton(onClick = { onOpenChat(m) }, colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) {
+                        Text("Open chat", fontSize = 18.sp)
+                    }
                 }
                 Button(
                     onClick = { alarm.stop() },

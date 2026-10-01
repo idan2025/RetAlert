@@ -28,6 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.Modifier
@@ -39,6 +40,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import network.retalert.app.ui.chat.ChatScreen
 import network.retalert.app.ui.contacts.ContactsScreen
 import network.retalert.app.ui.home.HomeScreen
 import network.retalert.app.ui.inbox.InboxScreen
@@ -72,7 +74,7 @@ private fun isWide() = LocalConfiguration.current.screenWidthDp >= 600
 
 /** Adaptive nav: a rail on wide screens (>=600dp), a bottom bar otherwise. */
 @Composable
-fun RetAlertApp() {
+fun RetAlertApp(openChat: String? = null, onChatOpened: () -> Unit = {}) {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
@@ -108,16 +110,25 @@ fun RetAlertApp() {
                     )
                 }
                 composable(RetDest.Map.route) { MapScreen() }
-                composable(RetDest.Inbox.route) { InboxScreen(onShowOnMap = { nav.navigateTab(RetDest.Map) }) }
+                composable(RetDest.Inbox.route) {
+                    InboxScreen(onShowOnMap = { nav.navigateTab(RetDest.Map) }, onOpenChat = { nav.navigate("chat/$it") })
+                }
+                composable("chat/{alertId}") { ChatScreen(onBack = back) }
                 composable(RetDest.Contacts.route) { ContactsScreen() }
                 composable(RetDest.More.route) { MoreScreen(onOpen = { nav.navigate(it.route) }) }
                 composable(SubDest.Send.route) { SendScreen(onBack = back) }
-                composable(SubDest.Outbox.route) { OutboxScreen(onBack = back) }
+                composable(SubDest.Outbox.route) { OutboxScreen(onBack = back, onOpenChat = { nav.navigate("chat/$it") }) }
                 composable(SubDest.Presets.route) { PresetsScreen(onBack = back) }
                 composable(SubDest.Settings.route) {
                     SettingsScreen(onBack = back, onOpenInterfaces = { nav.navigate(SubDest.Interfaces.route) })
                 }
                 composable(SubDest.Interfaces.route) { InterfacesScreen(onBack = back) }
+            }
+        }
+        LaunchedEffect(openChat) {
+            if (openChat != null) {
+                nav.navigate("chat/$openChat") { launchSingleTop = true }
+                onChatOpened()
             }
         }
         if (wide) {

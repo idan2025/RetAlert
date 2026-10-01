@@ -11,6 +11,8 @@ private const val ALERT_ID_PREFIX = "id:"
 private const val ACK_SEG = "ack"
 /** Reply sub-marker. */
 private const val REPLY_SEG = "reply"
+/** Per-alert chat sub-marker (internal form; see [Wire.chat]). */
+private const val CHAT_SEG = "chat"
 
 private val GEO_RE = Regex("""geo:(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)""")
 
@@ -62,6 +64,19 @@ fun decodeAck(body: String): String? {
 /** Wire an app-level reply (ack + optional text) back to the sender. */
 fun encodeReply(alertId: String, text: String = ""): String =
     "$RETALERT_MARKER$REPLY_SEG!$alertId!$text"
+
+/** Internal form of a per-alert chat message: `!RETALERT!chat!<alertId>!<text>`. */
+fun encodeChat(alertId: String, text: String): String = "$RETALERT_MARKER$CHAT_SEG!$alertId!$text"
+
+/** If [body] is a chat message, return (alertId, text); else null. */
+fun decodeChat(body: String): Pair<String, String>? {
+    val prefix = "$RETALERT_MARKER$CHAT_SEG!"
+    if (!body.startsWith(prefix)) return null
+    val rest = body.substring(prefix.length)
+    val sep = rest.indexOf('!')
+    if (sep <= 0) return null
+    return rest.substring(0, sep) to rest.substring(sep + 1)
+}
 
 /** If [body] is a reply, return (alertId, text); else null. */
 fun decodeReply(body: String): Pair<String, String>? {
@@ -141,6 +156,7 @@ class IncomingDispatcher(
     private val sendAckFn: ((alertId: String, sourceHex: String) -> Unit)? = null,
     private val ackCb: ((alertId: String, sourceHex: String) -> Unit)? = null,
     private val replyCb: ((alertId: String, sourceHex: String, reply: String) -> Unit)? = null,
+    private val chatCb: ((alertId: String, sourceHex: String, text: String) -> Unit)? = null,
 ) {
     /** Platform hook: called with the IncomingMessage for app-to-app alerts so the
      *  receiver can bypass silent/DND. :app wires the real notification. */
@@ -156,6 +172,7 @@ class IncomingDispatcher(
         when (msg.kind) {
             "ack" -> ackCb?.let { runCatching { it(msg.alertId, src) } }
             "reply" -> replyCb?.let { runCatching { it(msg.alertId, src, msg.text) } }
+            "chat" -> chatCb?.let { runCatching { it(msg.alertId, src, msg.text) } }
             else -> {
                 // Geo updates the live-track store regardless of alert/text kind.
                 if (msg.fix != null) {
@@ -187,6 +204,10 @@ class IncomingDispatcher(
         // App-level ack? (check before alert — ack also carries the marker)
         decodeAck(text)?.let { ackId ->
             return IncomingMessage(src, text, timestamp, kind = "ack", alertId = ackId)
+        }
+        // Per-alert chat? (check before alert — it carries the marker too)
+        decodeChat(text)?.let { (cid, ctext) ->
+            return IncomingMessage(src, ctext, timestamp, kind = "chat", alertId = cid)
         }
         // App-level reply? (check before alert)
         decodeReply(text)?.let { (rid, rtext) ->

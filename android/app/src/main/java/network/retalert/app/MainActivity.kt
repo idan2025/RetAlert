@@ -35,6 +35,8 @@ import network.retalert.reticulum.ReticulumService
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var alarm: AlarmPlayer
+    /** Chat to open once the UI is up (notification tap, pop-up button). */
+    private val pendingChat = androidx.compose.runtime.mutableStateOf<String?>(null)
     @Inject lateinit var engine: network.retalert.reticulum.ReticulumEngine
     @Inject lateinit var replier: network.retalert.app.platform.QuickReplier
     @Inject lateinit var settingsRepo: network.retalert.domain.SettingsRepository
@@ -63,7 +65,7 @@ class MainActivity : ComponentActivity() {
             // start). Lay it out left-to-right until there are RTL translations.
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 RetAlertTheme {
-                    Surface(modifier = Modifier.fillMaxSize()) { RetAlertApp() }
+                    Surface(modifier = Modifier.fillMaxSize()) { RetAlertApp(openChat = pendingChat.value, onChatOpened = { pendingChat.value = null }) }
                     val shown by alarm.shown.collectAsState()
                     val replies by produceState(network.retalert.domain.DEFAULT_QUICK_REPLIES, shown) {
                         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -71,7 +73,14 @@ class MainActivity : ComponentActivity() {
                                 .getOrDefault(network.retalert.domain.DEFAULT_QUICK_REPLIES)
                         }
                     }
-                    AlarmOverlay(alarm, replies) { msg, text -> replier.reply(msg, text) }
+                    AlarmOverlay(
+                        alarm, replies,
+                        onReply = { msg, text -> replier.reply(msg, text) },
+                        onOpenChat = { msg ->
+                            alarm.stop()
+                            if (!network.retalert.app.platform.QuickReplier.isTest(msg)) pendingChat.value = msg.alertId
+                        },
+                    )
                 }
             }
         }
@@ -92,6 +101,7 @@ class MainActivity : ComponentActivity() {
             setTurnScreenOn(true)
         }
         if (intent.getBooleanExtra(EXTRA_STOP_ALARM, false)) alarm.stop()
+        intent.getStringExtra(EXTRA_OPEN_CHAT)?.let { pendingChat.value = it }
         // A USB node was plugged in and the user let RetAlert handle it:
         // permission is granted now, so connect without waiting for a retry.
         if (intent.action == android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED) {
@@ -102,6 +112,8 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_SHOW_ALARM = "network.retalert.extra.SHOW_ALARM"
         const val EXTRA_STOP_ALARM = "network.retalert.extra.STOP_ALARM"
+        /** Open this alert's chat (reply / chat notifications). */
+        const val EXTRA_OPEN_CHAT = "network.retalert.extra.OPEN_CHAT"
         /** Pop-up over other apps, but not over the lock screen. */
         const val EXTRA_POPUP = "network.retalert.extra.POPUP"
     }

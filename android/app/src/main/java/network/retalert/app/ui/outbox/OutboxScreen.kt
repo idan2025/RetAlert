@@ -32,7 +32,7 @@ import network.retalert.domain.AckState
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun OutboxScreen(onBack: (() -> Unit)? = null, vm: OutboxViewModel = hiltViewModel()) {
+fun OutboxScreen(onBack: (() -> Unit)? = null, onOpenChat: (String) -> Unit = {}, vm: OutboxViewModel = hiltViewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     // Delivery/ack states change from the mesh thread; poll while visible.
     LaunchedEffect(Unit) {
@@ -74,6 +74,7 @@ fun OutboxScreen(onBack: (() -> Unit)? = null, vm: OutboxViewModel = hiltViewMod
                                     )
                                 }
                             }
+                            TextButton(onClick = { onOpenChat(row.alertId) }) { Text("Chat") }
                             TextButton(onClick = { vm.remove(row.alertId) }) {
                                 Text(if (row.active) "Cancel" else "Delete")
                             }
