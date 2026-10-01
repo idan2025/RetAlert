@@ -9,7 +9,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import network.retalert.app.platform.AppRestarter
+import network.retalert.domain.DEFAULT_SHARED_INSTANCE_PORT
 import network.retalert.domain.IfaceConfig
+import network.retalert.reticulum.UsbSerial
 import network.retalert.domain.IfaceType
 import network.retalert.domain.SettingsRepository
 import network.retalert.reticulum.EngineStatus
@@ -25,8 +30,16 @@ data class InterfacesUiState(
     /** Attached to Columba/Sideband: these interfaces are not in use. */
     val sharedInstance: Boolean = false,
     val meshRunning: Boolean = false,
+    /** "Use shared instance" setting (Columba, Sideband, MeshChat on this phone). */
+    val useSharedInstance: Boolean = true,
+    val sharedInstancePort: Int = DEFAULT_SHARED_INSTANCE_PORT,
+    val restarting: Boolean = false,
+    /** USB serial devices plugged in right now. */
+    val usbDevices: List<UsbOption> = emptyList(),
     val flash: String = "",
 )
+
+data class UsbOption(val spec: String, val label: String, val hasPermission: Boolean)
 
 /** Interfaces screen: add / edit / enable / remove the interfaces of
  *  RetAlert's own stack. Every change is applied to the running stack at once. */
@@ -34,6 +47,7 @@ data class InterfacesUiState(
 class InterfacesViewModel @Inject constructor(
     private val settingsRepo: SettingsRepository,
     private val engine: ReticulumEngine,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(InterfacesUiState())
@@ -42,9 +56,12 @@ class InterfacesViewModel @Inject constructor(
 
     init {
         viewModelScope.launch(Dispatchers.IO) {
-            configs = settingsRepo.load().interfaces.toList()
+            val s = settingsRepo.load()
+            configs = s.interfaces.toList()
+            _state.update { it.copy(useSharedInstance = s.useSharedInstance, sharedInstancePort = s.sharedInstancePort) }
             publish(engine.status.value)
         }
+        refreshUsb()
         viewModelScope.launch { engine.status.collect { publish(it) } }
     }
 
@@ -104,4 +121,49 @@ class InterfacesViewModel @Inject constructor(
         IfaceType.ALL.filter { t -> t !in IfaceType.SINGLETON || configs.none { it.type == t } }
 
     fun clearFlash() = _state.update { it.copy(flash = "") }
+
+    // -- USB --------------------------------------------------------------
+
+    fun refreshUsb() = viewModelScope.launch(Dispatchers.IO) {
+        val list = runCatching { UsbSerial.list(appContext) }.getOrDefault(emptyList())
+        _state.update { it.copy(usbDevices = list.map { d -> UsbOption(d.spec, d.label, d.hasPermission) }) }
+    }
+
+    /** Ask Android for access; [UsbPermissionReceiver] reconnects once granted. */
+    fun requestUsb(spec: String) {
+        val d = UsbSerial.list(appContext).firstOrNull { spec.isEmpty() || it.spec == spec } ?: run {
+            _state.update { it.copy(flash = "plug the device in first") }
+            return
+        }
+        UsbSerial.requestPermission(appContext, d.device)
+    }
+
+    /** Retry interfaces now (e.g. after USB access was granted). */
+    fun reconnectInterfaces() = viewModelScope.launch(Dispatchers.IO) { runCatching { engine.reloadInterfaces() } }
+
+    // -- shared instance ----------------------------------------------------
+
+    /** Same setting as Settings → Connection; switching restarts RetAlert (see [AppRestarter]). */
+    fun setUseSharedInstance(enabled: Boolean) = viewModelScope.launch(Dispatchers.IO) {
+        val s = settingsRepo.load()
+        s.useSharedInstance = enabled
+        settingsRepo.save(s)
+        restart()
+    }
+
+    fun setSharedInstancePort(port: String) = viewModelScope.launch(Dispatchers.IO) {
+        val p = port.trim().toIntOrNull()?.takeIf { it in 1..65535 }
+            ?: return@launch _state.update { it.copy(flash = "invalid port") }
+        val s = settingsRepo.load()
+        s.sharedInstancePort = p
+        settingsRepo.save(s)
+        restart()
+    }
+
+    fun reconnectShared() = viewModelScope.launch(Dispatchers.IO) { restart() }
+
+    private fun restart() {
+        _state.update { it.copy(restarting = true, flash = "restarting RetAlert…") }
+        AppRestarter.restart(appContext)
+    }
 }

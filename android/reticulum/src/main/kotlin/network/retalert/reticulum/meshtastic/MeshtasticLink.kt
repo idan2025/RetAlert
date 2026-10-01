@@ -12,6 +12,8 @@ import android.content.Context
 import android.os.Build
 import android.util.Log
 import network.retalert.domain.meshtastic.MeshStreamDeframer
+import network.retalert.reticulum.UsbSerial
+import network.retalert.reticulum.UsbStreams
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -71,6 +73,43 @@ class MeshtasticTcpLink(private val host: String, private val port: Int) : Mesht
     override fun close() { runCatching { socket?.close() }; socket = null }
 
     private companion object { const val CONNECT_TIMEOUT_MS = 10_000 }
+}
+
+/** A node plugged in over USB (OTG): the serial API, framed like TCP. */
+class MeshtasticUsbLink(private val context: Context, private val spec: String) : MeshtasticLink {
+    override val description = "USB " + spec.ifEmpty { "(first device)" }
+    @Volatile private var streams: UsbStreams? = null
+
+    override fun open(onFromRadio: (ByteArray) -> Unit, onClosed: (Throwable?) -> Unit) {
+        val s = UsbSerial.open(context, spec)
+        streams = s
+        // Wake the serial API (as the meshtastic Python client does), then let it settle.
+        runCatching { s.output.write(ByteArray(32) { 0xC3.toByte() }) }
+        Thread.sleep(100)
+        val deframer = MeshStreamDeframer(onFromRadio)
+        thread(name = "meshtastic-usb-rx", isDaemon = true) {
+            var err: Throwable? = null
+            try {
+                val buf = ByteArray(1024)
+                while (true) {
+                    val n = s.input.read(buf, 0, buf.size)
+                    if (n < 0) break
+                    deframer.feed(buf, n)
+                }
+            } catch (e: Exception) {
+                err = e
+            }
+            s.close()
+            onClosed(err ?: IOException("USB device disconnected"))
+        }
+    }
+
+    override fun write(toRadio: ByteArray) {
+        val s = streams ?: throw IOException("not connected")
+        synchronized(this) { s.output.write(MeshStreamDeframer.frame(toRadio)) }
+    }
+
+    override fun close() { streams?.close(); streams = null }
 }
 
 /**

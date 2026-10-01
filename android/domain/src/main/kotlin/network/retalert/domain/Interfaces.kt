@@ -19,7 +19,7 @@ object IfaceType {
         TCP_CLIENT -> "TCP client"
         TCP_SERVER -> "TCP server"
         UDP -> "UDP"
-        RNODE -> "RNode LoRa (Bluetooth)"
+        RNODE -> "RNode LoRa"
         BLE -> "Bluetooth LE mesh"
         I2P -> "I2P"
         MESHTASTIC -> "Meshtastic node"
@@ -49,7 +49,8 @@ object IfaceParam {
     const val PEERS = "peers"              // I2P: comma-separated b32 addresses
     const val CONNECTABLE = "connectable"  // I2P: "true" | "false"
     const val GROUP_ID = "group_id"        // AutoInterface
-    const val LINK = "link"                // Meshtastic: "ble" | "tcp"
+    const val LINK = "link"                // Meshtastic: "ble" | "tcp" | "usb"; RNode: "ble" (Bluetooth Classic, default) | "usb"
+    const val USB_DEVICE = "usb_device"    // "vid:pid" in hex, or empty = first USB serial device
     const val CHANNEL = "channel"          // Meshtastic channel index 0-7
     const val MESH_PORT = "mesh_port"      // Meshtastic: "reticulum" (76) | "private" (256)
     const val HOP_LIMIT = "hop_limit"      // Meshtastic 0-7
@@ -58,7 +59,16 @@ object IfaceParam {
 object MeshLink {
     const val BLE = "ble"
     const val TCP = "tcp"
+    const val USB = "usb"
 }
+
+private val USB_SPEC_RE = Regex("^[0-9a-f]{4}:[0-9a-f]{4}$")
+
+/** True when [spec] is empty (first device) or a "vid:pid" hex pair. */
+fun isUsbSpec(spec: String): Boolean = spec.isEmpty() || USB_SPEC_RE.matches(spec)
+
+/** RNodes default to Bluetooth (configs saved before USB support have no link). */
+fun rnodeLink(c: IfaceConfig): String = if (c.param(IfaceParam.LINK) == MeshLink.USB) MeshLink.USB else MeshLink.BLE
 
 object MeshPort {
     const val RETICULUM = "reticulum"
@@ -136,7 +146,8 @@ fun validateIface(c: IfaceConfig): String? {
         IfaceType.RNODE -> {
             val f = c.longParam(IfaceParam.FREQUENCY)
             when {
-                !BT_MAC_RE.matches(c.param(IfaceParam.BT_ADDRESS)) -> "pick a paired RNode"
+                rnodeLink(c) == MeshLink.BLE && !BT_MAC_RE.matches(c.param(IfaceParam.BT_ADDRESS)) -> "pick a paired RNode"
+                rnodeLink(c) == MeshLink.USB && !isUsbSpec(c.param(IfaceParam.USB_DEVICE)) -> "pick the USB device"
                 f == null || f !in 137_000_000L..3_000_000_000L -> "frequency must be 137–3000 MHz (in Hz)"
                 c.longParam(IfaceParam.BANDWIDTH) !in LORA_BANDWIDTHS -> "unsupported LoRa bandwidth"
                 c.intParam(IfaceParam.TX_POWER) !in 0..37 -> "TX power must be 0–37 dBm"
@@ -149,7 +160,8 @@ fun validateIface(c: IfaceConfig): String? {
             c.param(IfaceParam.LINK) == MeshLink.BLE && !BT_MAC_RE.matches(c.param(IfaceParam.BT_ADDRESS)) -> "pick the paired Meshtastic node"
             c.param(IfaceParam.LINK) == MeshLink.TCP && (c.param(IfaceParam.HOST).isEmpty() || c.param(IfaceParam.HOST).any(Char::isWhitespace)) -> "enter the node's IP address"
             c.param(IfaceParam.LINK) == MeshLink.TCP && c.intParam(IfaceParam.PORT) !in 1..65535 -> "Port must be a port number (1–65535)"
-            c.param(IfaceParam.LINK) !in setOf(MeshLink.BLE, MeshLink.TCP) -> "choose Bluetooth or Wi-Fi"
+            c.param(IfaceParam.LINK) == MeshLink.USB && !isUsbSpec(c.param(IfaceParam.USB_DEVICE)) -> "pick the USB device"
+            c.param(IfaceParam.LINK) !in setOf(MeshLink.BLE, MeshLink.TCP, MeshLink.USB) -> "choose Bluetooth, Wi-Fi or USB"
             c.intParam(IfaceParam.CHANNEL) !in 0..7 -> "channel must be 0–7"
             c.intParam(IfaceParam.HOP_LIMIT) !in 0..7 -> "hop limit must be 0–7"
             c.param(IfaceParam.MESH_PORT) !in setOf(MeshPort.RETICULUM, MeshPort.PRIVATE) -> "choose a Meshtastic port"

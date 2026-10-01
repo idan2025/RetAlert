@@ -15,6 +15,8 @@ import network.retalert.domain.meshtastic.MeshProto
 import network.retalert.reticulum.meshtastic.MeshtasticBleLink
 import network.retalert.reticulum.meshtastic.MeshtasticInterface
 import network.retalert.reticulum.meshtastic.MeshtasticTcpLink
+import network.retalert.reticulum.meshtastic.MeshtasticUsbLink
+import network.retalert.domain.rnodeLink
 import network.reticulum.android.ble.AndroidBLEDriver
 import network.reticulum.interfaces.Interface
 import network.reticulum.interfaces.auto.AutoInterface
@@ -100,11 +102,13 @@ internal class InterfaceFactory(private val context: Context) {
                 ifacNetkey = netkey,
             )
             IfaceType.MESHTASTIC -> {
-                val link = if (c.param(IfaceParam.LINK) == MeshLink.TCP) {
-                    MeshtasticTcpLink(c.param(IfaceParam.HOST), c.intParam(IfaceParam.PORT) ?: 4403)
-                } else {
-                    requireBluetooth(Manifest.permission.BLUETOOTH_CONNECT)
-                    MeshtasticBleLink(context, c.param(IfaceParam.BT_ADDRESS))
+                val link = when (c.param(IfaceParam.LINK)) {
+                    MeshLink.TCP -> MeshtasticTcpLink(c.param(IfaceParam.HOST), c.intParam(IfaceParam.PORT) ?: 4403)
+                    MeshLink.USB -> MeshtasticUsbLink(context, c.param(IfaceParam.USB_DEVICE))
+                    else -> {
+                        requireBluetooth(Manifest.permission.BLUETOOTH_CONNECT)
+                        MeshtasticBleLink(context, c.param(IfaceParam.BT_ADDRESS))
+                    }
                 }
                 MeshtasticInterface(
                     name = name,
@@ -118,9 +122,13 @@ internal class InterfaceFactory(private val context: Context) {
         }
     }
 
-    /** RNode over Bluetooth Classic (SPP). Blocks while the socket connects. */
+    /** RNode over USB serial or Bluetooth Classic (SPP). Blocks while connecting. */
     @SuppressLint("MissingPermission")
     private fun createRNode(name: String, c: IfaceConfig): Interface {
+        if (rnodeLink(c) == MeshLink.USB) {
+            val usb = UsbSerial.open(context, c.param(IfaceParam.USB_DEVICE))
+            return rnodeOver(name, c, usb.input, usb.output)
+        }
         requireBluetooth(Manifest.permission.BLUETOOTH_CONNECT)
         val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
             ?: error("this phone has no Bluetooth")
@@ -133,17 +141,20 @@ internal class InterfaceFactory(private val context: Context) {
             error("could not connect to ${device.name ?: device.address} — is it on and paired?")
         }
         // Closing the streams on detach also closes the socket.
-        return RNodeInterface(
+        return rnodeOver(name, c, socket.inputStream, socket.outputStream)
+    }
+
+    private fun rnodeOver(name: String, c: IfaceConfig, input: java.io.InputStream, output: java.io.OutputStream): Interface =
+        RNodeInterface(
             name = name,
-            inputStream = socket.inputStream,
-            outputStream = socket.outputStream,
+            inputStream = input,
+            outputStream = output,
             frequency = c.longParam(IfaceParam.FREQUENCY) ?: error("bad frequency"),
             bandwidth = c.longParam(IfaceParam.BANDWIDTH) ?: error("bad bandwidth"),
             txPower = c.intParam(IfaceParam.TX_POWER) ?: error("bad TX power"),
             spreadingFactor = c.intParam(IfaceParam.SF) ?: error("bad spreading factor"),
             codingRate = c.intParam(IfaceParam.CR) ?: error("bad coding rate"),
         )
-    }
 
     private fun requireBluetooth(vararg perms: String) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return

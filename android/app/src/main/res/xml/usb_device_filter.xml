@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- USB serial chips and boards used by Meshtastic nodes and RNodes. Plugging
+     one in offers to open RetAlert; "always" grants USB access for good. -->
+<resources>
+    <usb-device vendor-id="4292" />   <!-- 0x10c4 Silicon Labs CP210x -->
+    <usb-device vendor-id="6790" />   <!-- 0x1a86 WCH CH34x -->
+    <usb-device vendor-id="1027" />   <!-- 0x0403 FTDI -->
+    <usb-device vendor-id="1659" />   <!-- 0x067b Prolific -->
+    <usb-device vendor-id="9114" />   <!-- 0x239a Adafruit nRF52 (RAK4631, XIAO…) -->
+    <usb-device vendor-id="10374" />  <!-- 0x2886 Seeed -->
+    <usb-device vendor-id="12346" />  <!-- 0x303a Espressif native USB -->
+    <usb-device vendor-id="6421" />   <!-- 0x1915 Nordic -->
+    <usb-device vendor-id="11914" />  <!-- 0x2e8a Raspberry Pi RP2040 -->
+</resources>
