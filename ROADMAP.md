@@ -1,7 +1,7 @@
 # RetAlert roadmap
 
 Ideas for what to build next, ordered by how much they help in a real
-emergency. Current release: **0.4.1**.
+emergency. Current release: **0.5.0**.
 
 ## Highest value
 
@@ -83,6 +83,6 @@ left-to-right today because it is English-only).
   Reticulum link transfer for media.
 
 ## Suggested next step
-Start with **quick replies (1)** and **store-and-forward (2)**: together they
-close the two biggest gaps — the sender gets a real response, and alerts still
-reach people who are offline for a while.
+Quick replies and per-alert chat shipped in 0.5. Next: **store-and-forward
+(2)**, so alerts still reach people who are offline for a while, then
+**escalation (3)**.
