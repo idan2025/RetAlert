@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.foundation.BorderStroke
@@ -55,36 +58,43 @@ fun AlarmOverlay(
     ) {
         Surface(Modifier.fillMaxSize(), color = AlertRed, contentColor = Color.White) {
             Column(
-                Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 48.dp),
+                Modifier.fillMaxSize().systemBarsPadding().padding(horizontal = 24.dp, vertical = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
             ) {
-                Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.height(96.dp).fillMaxWidth())
-                Text("ALERT", fontSize = 44.sp, fontWeight = FontWeight.Black)
-                Text(m.severity.uppercase(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text(m.text, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
-                Text(
-                    if (replies.isEmpty()) "From ${m.sourceHash.take(8)}… — open the Inbox to reply."
-                    else "From ${m.sourceHash.take(8)}… — tap a reply to answer and stop the alarm.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                )
-                replies.forEach { r ->
-                    OutlinedButton(
-                        onClick = { onReply(m, r) },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        border = BorderStroke(2.dp, Color.White),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    ) { Text(r, fontSize = 20.sp, fontWeight = FontWeight.SemiBold) }
-                }
-                if (onOpenChat != null) {
-                    TextButton(onClick = { onOpenChat(m) }, colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) {
-                        Text("Open chat", fontSize = 18.sp)
+                // Everything but Stop scrolls, so a long message or several
+                // replies can never push the Stop button off the screen.
+                Column(
+                    Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterVertically),
+                ) {
+                    Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.height(72.dp).fillMaxWidth())
+                    Text("ALERT", fontSize = 44.sp, fontWeight = FontWeight.Black)
+                    Text(m.severity.uppercase(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(m.text, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
+                    Text(
+                        if (replies.isEmpty()) "From ${m.sourceHash.take(8)}… — open the Inbox to reply."
+                        else "From ${m.sourceHash.take(8)}… — tap a reply to answer and stop the alarm.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                    )
+                    replies.forEach { r ->
+                        OutlinedButton(
+                            onClick = { onReply(m, r) },
+                            modifier = Modifier.fillMaxWidth().height(56.dp),
+                            border = BorderStroke(2.dp, Color.White),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        ) { Text(r, fontSize = 20.sp, fontWeight = FontWeight.SemiBold) }
+                    }
+                    if (onOpenChat != null) {
+                        TextButton(onClick = { onOpenChat(m) }, colors = ButtonDefaults.textButtonColors(contentColor = Color.White)) {
+                            Text("Open chat", fontSize = 18.sp)
+                        }
                     }
                 }
                 Button(
                     onClick = { alarm.stop() },
-                    modifier = Modifier.fillMaxWidth().height(64.dp).padding(top = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp).height(64.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = AlertRed),
                 ) {
                     Text(if (ringing != null) "Stop alarm" else "Dismiss", fontSize = 22.sp, fontWeight = FontWeight.Bold)
