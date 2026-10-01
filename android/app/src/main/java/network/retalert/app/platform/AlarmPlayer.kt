@@ -48,6 +48,9 @@ class AlarmPlayer @Inject constructor(
     /** The alert currently ringing, or null. */
     val ringing: StateFlow<IncomingMessage?> = _ringing.asStateFlow()
 
+    /** Called on the main thread with the alert that stopped ringing. */
+    var onStopped: ((IncomingMessage) -> Unit)? = null
+
     private val timeout = Runnable { silence() }
 
     fun start(msg: IncomingMessage) {
@@ -69,6 +72,7 @@ class AlarmPlayer @Inject constructor(
 
     private fun silence() {
         main.removeCallbacks(timeout)
+        val stopped = _ringing.value
         _ringing.value = null
         runCatching { player?.stop() }
         runCatching { player?.release() }
@@ -80,6 +84,7 @@ class AlarmPlayer @Inject constructor(
         savedFilter = null
         runCatching { wakeLock?.takeIf { it.isHeld }?.release() }
         wakeLock = null
+        stopped?.let { m -> runCatching { onStopped?.invoke(m) } }
     }
 
     private fun begin() {

@@ -32,14 +32,33 @@ class AlertNotifier @Inject constructor(
     private val alarm: AlarmPlayer,
 ) : IncomingNotifier {
 
-    init { createChannels() }
+    init {
+        createChannels()
+        alarm.onStopped = { msg -> post(msg, ringing = false, updateOnly = true) }
+    }
 
     override fun onAlert(msg: IncomingMessage) {
         val override = runCatching { settings.load().alarmOverrideSilent }.getOrDefault(true)
         // Ring first: a phone with notifications blocked still gets the alarm.
         if (override) alarm.start(msg)
+        post(msg, ringing = override, updateOnly = false)
+    }
+
+    /**
+     * Post the alert's notification; with [updateOnly], quietly refresh it
+     * instead. After the alarm stops, a notification still on screen keeps the
+     * alert but loses its "Stop alarm" button; one the user already dismissed
+     * or tapped stays gone.
+     */
+    private fun post(msg: IncomingMessage, ringing: Boolean, updateOnly: Boolean) {
         val mgr = NotificationManagerCompat.from(ctx)
         if (!mgr.areNotificationsEnabled()) return
+        val id = notifId(msg.alertId)
+        val nm = ctx.getSystemService(NotificationManager::class.java)
+        val shown = nm?.activeNotifications?.firstOrNull { it.id == id }
+        if (updateOnly && shown == null) return
+        val channel = shown?.notification?.channelId
+            ?: if (ringing) ALARM_CHANNEL_ID else CHANNEL_ID
         val req = msg.alertId.hashCode()
         val fullScreen = PendingIntent.getActivity(
             ctx, req, activityIntent().putExtra(MainActivity.EXTRA_SHOW_ALARM, true),
@@ -53,7 +72,7 @@ class AlertNotifier @Inject constructor(
             ctx, 0, Intent(ctx, AlarmStopReceiver::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-        val notif = NotificationCompat.Builder(ctx, if (override) ALARM_CHANNEL_ID else CHANNEL_ID)
+        val notif = NotificationCompat.Builder(ctx, channel)
             .setSmallIcon(R.drawable.ic_alert)
             .setContentTitle("RetAlert · ${msg.severity}")
             .setContentText(msg.text.take(120))
@@ -61,13 +80,21 @@ class AlertNotifier @Inject constructor(
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setFullScreenIntent(fullScreen, true)
             .setContentIntent(open)
-            .setDeleteIntent(stop)
-            .apply { if (override) addAction(0, "Stop alarm", stop) }
             .setAutoCancel(true)
+            .apply {
+                if (!updateOnly) setFullScreenIntent(fullScreen, true)
+                if (ringing) {
+                    setDeleteIntent(stop)
+                    addAction(0, "Stop alarm", stop)
+                }
+                // The alarm channel is already silent; no setSilent(), which moves
+                // the notification into a summary-less "silent" group that some
+                // system UIs (seen on Nubia) drop.
+                if (updateOnly) setOnlyAlertOnce(true)
+            }
             .build()
-        runCatching { mgr.notify(notifId(msg.alertId), notif) }
+        runCatching { mgr.notify(id, notif) }
     }
 
     private fun activityIntent() = Intent(ctx, MainActivity::class.java)
