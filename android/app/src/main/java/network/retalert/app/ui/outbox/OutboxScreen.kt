@@ -68,7 +68,10 @@ fun OutboxScreen(onBack: (() -> Unit)? = null, vm: OutboxViewModel = hiltViewMod
                                     AssistChip(onClick = {}, label = { Text("(no recipients)") })
                                 }
                                 row.states.forEach { rs ->
-                                    AssistChip(onClick = {}, label = { Text("${rs.label}: ${rs.state}") })
+                                    AssistChip(
+                                        onClick = {},
+                                        label = { Text(if (rs.reply.isNotEmpty()) "${rs.label}: “${rs.reply}”" else "${rs.label}: ${rs.state}") },
+                                    )
                                 }
                             }
                             TextButton(onClick = { vm.remove(row.alertId) }) {

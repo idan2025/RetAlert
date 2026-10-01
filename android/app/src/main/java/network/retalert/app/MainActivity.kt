@@ -12,6 +12,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -33,6 +36,8 @@ class MainActivity : ComponentActivity() {
 
     @Inject lateinit var alarm: AlarmPlayer
     @Inject lateinit var engine: network.retalert.reticulum.ReticulumEngine
+    @Inject lateinit var replier: network.retalert.app.platform.QuickReplier
+    @Inject lateinit var settingsRepo: network.retalert.domain.SettingsRepository
 
     private fun missingPerms(): Array<String> = buildList {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -59,7 +64,14 @@ class MainActivity : ComponentActivity() {
             CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
                 RetAlertTheme {
                     Surface(modifier = Modifier.fillMaxSize()) { RetAlertApp() }
-                    AlarmOverlay(alarm)
+                    val shown by alarm.shown.collectAsState()
+                    val replies by produceState(network.retalert.domain.DEFAULT_QUICK_REPLIES, shown) {
+                        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            runCatching { settingsRepo.load().quickReplies.toList() }
+                                .getOrDefault(network.retalert.domain.DEFAULT_QUICK_REPLIES)
+                        }
+                    }
+                    AlarmOverlay(alarm, replies) { msg, text -> replier.reply(msg, text) }
                 }
             }
         }

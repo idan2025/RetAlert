@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import network.retalert.domain.IncomingMessage
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -29,9 +32,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import network.retalert.app.platform.AlarmPlayer
 
 /** Full-screen emergency alert, on top of every screen, while an incoming
- *  alert is ringing or shown (see [AlarmPlayer.shown]). */
+ *  alert is ringing or shown (see [AlarmPlayer.shown]). [replies] are one-tap
+ *  answers ("On my way"…) sent through [onReply]. */
 @Composable
-fun AlarmOverlay(alarm: AlarmPlayer) {
+fun AlarmOverlay(
+    alarm: AlarmPlayer,
+    replies: List<String> = emptyList(),
+    onReply: (IncomingMessage, String) -> Unit = { _, _ -> },
+) {
     val shown by alarm.shown.collectAsStateWithLifecycle()
     val ringing by alarm.ringing.collectAsStateWithLifecycle()
     val m = shown ?: return
@@ -54,10 +62,19 @@ fun AlarmOverlay(alarm: AlarmPlayer) {
                 Text(m.severity.uppercase(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                 Text(m.text, style = MaterialTheme.typography.headlineSmall, textAlign = TextAlign.Center)
                 Text(
-                    "From ${m.sourceHash.take(8)}… — open the Inbox to reply.",
+                    if (replies.isEmpty()) "From ${m.sourceHash.take(8)}… — open the Inbox to reply."
+                    else "From ${m.sourceHash.take(8)}… — tap a reply to answer and stop the alarm.",
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                 )
+                replies.forEach { r ->
+                    OutlinedButton(
+                        onClick = { onReply(m, r) },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        border = BorderStroke(2.dp, Color.White),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                    ) { Text(r, fontSize = 20.sp, fontWeight = FontWeight.SemiBold) }
+                }
                 Button(
                     onClick = { alarm.stop() },
                     modifier = Modifier.fillMaxWidth().height(64.dp).padding(top = 8.dp),

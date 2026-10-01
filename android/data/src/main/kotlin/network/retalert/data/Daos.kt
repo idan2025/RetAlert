@@ -99,6 +99,9 @@ interface OutboxDao {
 
     @Query("DELETE FROM ack_states WHERE alertId = :alertId")
     fun deleteAcks(alertId: String): Int
+
+    @Query("UPDATE ack_states SET reply = :reply WHERE alertId = :alertId AND recipient = :recipient")
+    fun setReply(alertId: String, recipient: String, reply: String): Int
 }
 
 @Dao

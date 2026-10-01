@@ -63,6 +63,10 @@ interface OutboxRepository {
     /** Per-recipient ack states for one alert (alertId -> recipientHex -> state). */
     fun ackStates(alertId: String): Map<String, String>
     fun setAckState(alertId: String, recipient: String, state: String)
+    /** Reply text a recipient sent back (kept across later state changes). */
+    fun setReply(alertId: String, recipient: String, reply: String) {}
+    /** recipientHex -> reply text, for recipients that replied. */
+    fun replies(alertId: String): Map<String, String> = emptyMap()
 }
 
 /** Persisted subset of Discover: starred peer hashes (cache itself is ephemeral). */

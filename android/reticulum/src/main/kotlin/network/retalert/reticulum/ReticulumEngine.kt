@@ -115,6 +115,10 @@ class ReticulumEngine(
         ackTracker.onStateChange = { id, r, state ->
             scope.launch(persistDispatcher) { runCatching { outboxRepo.setAckState(id, r, state) } }
         }
+        // Same lane, so the reply lands after the REPLIED state row exists.
+        ackTracker.onReply = { id, r, text ->
+            scope.launch(persistDispatcher) { runCatching { outboxRepo.setReply(id, r, text) } }
+        }
     }
 
     /** Bring up RNS, identity, interfaces, LXMF router, announce handler, retry flusher. Blocking. */
@@ -298,6 +302,7 @@ class ReticulumEngine(
             if (stale || dropped) detachInterface(id)
         }
         ifaceErrors.keys.retainAll(wanted.keys)
+        var cameUp = 0
         for ((id, cfg) in wanted) {
             if (id in ownInterfaces) continue
             runCatching { createInterface(cfg) }
@@ -305,6 +310,7 @@ class ReticulumEngine(
                     ownInterfaces[id] = cfg to it
                     ifaceStartedAt[id] = System.currentTimeMillis()
                     ifaceErrors.remove(id)
+                    cameUp++
                 }
                 .onFailure {
                     Log.w(TAG, "interface ${cfg.name} failed to start", it)
@@ -314,6 +320,16 @@ class ReticulumEngine(
         val needsMulticast = ownInterfaces.values.any { it.first.type == IfaceType.AUTO || it.first.type == IfaceType.UDP }
         if (needsMulticast) acquireMulticastLock() else releaseMulticastLock()
         _status.update { it.copy(ifaceErrors = ifaceErrors.toMap()) }
+        // A new or reconnected interface hasn't carried our announce yet, so
+        // nobody behind it can route to us until the next one — and automatic
+        // announcing is off by default. Announce once it has had time to connect.
+        // (Startup announces by itself; this covers interfaces added later.)
+        if (cameUp > 0 && _status.value.running) {
+            loops += scope.launch {
+                delay(NEW_IFACE_ANNOUNCE_DELAY_MS)
+                if (running) runCatching { lxmf.announce() }
+            }
+        }
     }
 
     private fun createInterface(c: IfaceConfig): Interface {
@@ -467,6 +483,7 @@ class ReticulumEngine(
         private const val STATUS_INTERVAL_MS = 3000L
         private const val ANNOUNCE_SETTLE_MS = 15_000L
         private const val IFACE_RETRY_MS = 30_000L
+        private const val NEW_IFACE_ANNOUNCE_DELAY_MS = 8_000L
         /** RNode detect + radio init takes a few seconds before it reports online. */
         private const val IFACE_SETTLE_MS = 20_000L
         /** Types whose link can drop and must be rebuilt (TCP clients reconnect by themselves). */

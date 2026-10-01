@@ -32,7 +32,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 
-private val CANNED_REPLIES = listOf("Acknowledged", "On my way", "Cannot help", "Stand by")
 
 @Composable
 fun InboxScreen(onShowOnMap: () -> Unit = {}, vm: InboxViewModel = hiltViewModel()) {
@@ -70,6 +69,14 @@ fun InboxScreen(onShowOnMap: () -> Unit = {}, vm: InboxViewModel = hiltViewModel
                                 val from = e.sourceName.ifBlank { e.sourceHash.take(8) + "…" }
                                 Text("[${e.severity}] from $from", style = MaterialTheme.typography.labelSmall)
                                 Text(e.text.take(280), style = MaterialTheme.typography.bodyMedium)
+                                e.myReply?.let { r ->
+                                    Text(
+                                        if (r == network.retalert.app.platform.MyReplies.ACKNOWLEDGED) "✓ You acknowledged" else "✓ You replied: $r",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(top = 4.dp),
+                                    )
+                                }
                                 Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                     OutlinedButton(onClick = { vm.ackAlert(e) }) { Text("Ack") }
                                     OutlinedButton(onClick = { replyFor = e }) { Text("Reply") }
@@ -88,6 +95,7 @@ fun InboxScreen(onShowOnMap: () -> Unit = {}, vm: InboxViewModel = hiltViewModel
 
     replyFor?.let { row ->
         ReplyDialog(
+            quickReplies = state.quickReplies,
             onDismiss = { replyFor = null },
             onReply = { text ->
                 vm.reply(row, text)
@@ -98,7 +106,7 @@ fun InboxScreen(onShowOnMap: () -> Unit = {}, vm: InboxViewModel = hiltViewModel
 }
 
 @Composable
-private fun ReplyDialog(onDismiss: () -> Unit, onReply: (String) -> Unit) {
+private fun ReplyDialog(quickReplies: List<String>, onDismiss: () -> Unit, onReply: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -112,8 +120,9 @@ private fun ReplyDialog(onDismiss: () -> Unit, onReply: (String) -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
-                CANNED_REPLIES.forEach { canned ->
-                    TextButton(onClick = { text = canned }) { Text(canned) }
+                // One tap sends — same quick replies as the alert pop-up.
+                quickReplies.forEach { quick ->
+                    OutlinedButton(onClick = { onReply(quick) }, modifier = Modifier.fillMaxWidth()) { Text(quick) }
                 }
             }
         },

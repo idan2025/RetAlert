@@ -34,9 +34,39 @@ class AlertNotifier @Inject constructor(
     private val alarm: AlarmPlayer,
 ) : IncomingNotifier {
 
+    /** alertId -> what the user replied, so later refreshes keep "You replied". */
+    private val replied = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     init {
         createChannels()
         alarm.onStopped = { msg -> post(msg, ringing = false, updateOnly = true) }
+    }
+
+    /** The user answered [msg] with [text]: show that instead of the buttons. */
+    fun markReplied(msg: IncomingMessage, text: String) {
+        replied[msg.alertId] = text
+        post(msg, ringing = false, updateOnly = true)
+    }
+
+    /** Someone replied to an alert we sent. */
+    override fun onReply(alertId: String, sourceHex: String, senderName: String, text: String) {
+        val mgr = NotificationManagerCompat.from(ctx)
+        if (!mgr.areNotificationsEnabled()) return
+        val open = PendingIntent.getActivity(
+            ctx, (alertId + sourceHex).hashCode(), activityIntent(),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notif = NotificationCompat.Builder(ctx, REPLY_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_alert)
+            .setContentTitle("$senderName replied")
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        runCatching { mgr.notify(notifId(alertId + sourceHex), notif) }
     }
 
     override fun onAlert(msg: IncomingMessage) {
@@ -48,6 +78,7 @@ class AlertNotifier @Inject constructor(
         } else {
             alarm.show(msg)
         }
+        quickReplies = s.quickReplies.toList()
         post(msg, ringing = ring, updateOnly = false, lockScreen = s.alertLockScreen)
         if (s.alertPopup) popUp(s.alertLockScreen)
     }
@@ -98,11 +129,13 @@ class AlertNotifier @Inject constructor(
             ctx, 0, Intent(ctx, AlarmStopReceiver::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val answer = replied[msg.alertId]
+        val body = if (answer != null) "${msg.text}\n\nYou replied: $answer" else msg.text
         val notif = NotificationCompat.Builder(ctx, channel)
             .setSmallIcon(R.drawable.ic_alert)
             .setContentTitle("RetAlert · ${msg.severity}")
-            .setContentText(msg.text.take(120))
-            .setStyle(NotificationCompat.BigTextStyle().bigText(msg.text))
+            .setContentText(if (answer != null) "You replied: $answer" else msg.text.take(120))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -114,6 +147,12 @@ class AlertNotifier @Inject constructor(
                     setDeleteIntent(stop)
                     addAction(0, "Stop alarm", stop)
                 }
+                // Quick replies fill the rest of Android's three action slots.
+                if (answer == null) {
+                    quickReplies.take(if (ringing) 2 else 3).forEachIndexed { i, text ->
+                        addAction(0, text, replyIntent(msg, text, i))
+                    }
+                }
                 // The alarm channel is already silent; no setSilent(), which moves
                 // the notification into a summary-less "silent" group that some
                 // system UIs (seen on Nubia) drop.
@@ -122,6 +161,20 @@ class AlertNotifier @Inject constructor(
             .build()
         runCatching { mgr.notify(id, notif) }
     }
+
+    @Volatile private var quickReplies: List<String> = network.retalert.domain.DEFAULT_QUICK_REPLIES
+
+    private fun replyIntent(msg: IncomingMessage, text: String, index: Int): PendingIntent =
+        PendingIntent.getBroadcast(
+            ctx, notifId(msg.alertId) + 10 + index,
+            Intent(ctx, QuickReplyReceiver::class.java)
+                .putExtra(QuickReplyReceiver.EXTRA_ALERT_ID, msg.alertId)
+                .putExtra(QuickReplyReceiver.EXTRA_SOURCE, msg.sourceHash)
+                .putExtra(QuickReplyReceiver.EXTRA_SEVERITY, msg.severity)
+                .putExtra(QuickReplyReceiver.EXTRA_BODY, msg.text)
+                .putExtra(QuickReplyReceiver.EXTRA_TEXT, text),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
 
     private fun activityIntent() = Intent(ctx, MainActivity::class.java)
         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -135,6 +188,11 @@ class AlertNotifier @Inject constructor(
                 description = "Alerts when \"Ring through silent mode\" is off (follows the phone's sound settings)"
                 setBypassDnd(true)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+            },
+        )
+        nm.createNotificationChannel(
+            NotificationChannel(REPLY_CHANNEL_ID, "Replies to your alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "When someone answers an alert you sent (\"On my way\"…)"
             },
         )
         // The alarm itself makes the sound and vibration; the channel stays
@@ -153,6 +211,7 @@ class AlertNotifier @Inject constructor(
     private companion object {
         const val CHANNEL_ID = "retalert-alerts"
         const val ALARM_CHANNEL_ID = "retalert-alarm"
+        const val REPLY_CHANNEL_ID = "retalert-replies"
     }
 }
 

@@ -14,6 +14,8 @@ class AckTracker(private val clock: Clock = RealClock) {
     /** Observer for per-recipient state transitions (e.g. persist to the outbox).
      *  Invoked outside the tracker's lock. */
     @Volatile var onStateChange: ((alertId: String, recipient: String, state: String) -> Unit)? = null
+    /** A recipient replied with text (persisted so Sent alerts can show it). */
+    @Volatile var onReply: ((alertId: String, recipient: String, reply: String) -> Unit)? = null
 
     private fun notify(alertId: String, recipient: String, before: String?, after: String?) {
         if (after != null && before != after) runCatching { onStateChange?.invoke(alertId, recipient, after) }
@@ -66,9 +68,12 @@ class AckTracker(private val clock: Clock = RealClock) {
         }
     }
 
-    fun onAck(alertId: String, recipient: String, reply: String = "") = transition(alertId, recipient) { rs ->
-        rs.state = if (reply.isNotEmpty()) AckState.REPLIED else AckState.ACKED
-        if (reply.isNotEmpty()) rs.reply = reply
+    fun onAck(alertId: String, recipient: String, reply: String = "") {
+        transition(alertId, recipient) { rs ->
+            rs.state = if (reply.isNotEmpty()) AckState.REPLIED else AckState.ACKED
+            if (reply.isNotEmpty()) rs.reply = reply
+        }
+        if (reply.isNotEmpty()) runCatching { onReply?.invoke(alertId, recipient, reply) }
     }
 
     @Synchronized

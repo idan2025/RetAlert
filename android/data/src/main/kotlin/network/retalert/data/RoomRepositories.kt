@@ -198,10 +198,18 @@ class RoomOutboxRepository(
         outboxDao.ackStates(alertId).associate { it.recipient to it.state }
 
     override fun setAckState(alertId: String, recipient: String, state: String) {
-        outboxDao.upsertAck(
-            AckStateEntity(alertId = alertId, recipient = recipient.lowercase().trim(), state = state)
-        )
+        val r = recipient.lowercase().trim()
+        // The upsert replaces the row: carry a stored reply over to the new state.
+        val reply = outboxDao.ackStates(alertId).firstOrNull { it.recipient == r }?.reply
+        outboxDao.upsertAck(AckStateEntity(alertId = alertId, recipient = r, state = state, reply = reply))
     }
+
+    override fun setReply(alertId: String, recipient: String, reply: String) {
+        outboxDao.setReply(alertId, recipient.lowercase().trim(), reply)
+    }
+
+    override fun replies(alertId: String): Map<String, String> =
+        outboxDao.ackStates(alertId).mapNotNull { e -> e.reply?.takeIf { it.isNotEmpty() }?.let { e.recipient to it } }.toMap()
 }
 
 /* ---------- SettingsRepository ---------- */
@@ -248,6 +256,7 @@ class RoomSettingsRepository(
         val alarmMinutes: Int = network.retalert.domain.AlarmSound.DEFAULT_RING_MINUTES,
         val legacyWire: Boolean = false,
         val displayName: String = "",
+        val quickReplies: List<String>? = null,
     )
 
     override fun load(): Settings {
@@ -279,6 +288,8 @@ class RoomSettingsRepository(
             alarmMinutes = s.alarmMinutes.coerceIn(1, 60),
             legacyWire = s.legacyWire,
             displayName = s.displayName,
+            quickReplies = s.quickReplies?.let { network.retalert.domain.normalizeQuickReplies(it) }
+                ?: network.retalert.domain.DEFAULT_QUICK_REPLIES.toMutableList(),
         )
     }
 
@@ -306,6 +317,7 @@ class RoomSettingsRepository(
             alarmMinutes = settings.alarmMinutes,
             legacyWire = settings.legacyWire,
             displayName = settings.displayName,
+            quickReplies = settings.quickReplies.toList(),
         )
         dao.upsert(SettingsEntity(1, json.encodeToString(Snapshot.serializer(), s)))
     }

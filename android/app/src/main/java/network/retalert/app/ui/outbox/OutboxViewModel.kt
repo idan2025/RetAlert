@@ -24,7 +24,13 @@ data class OutboxRow(
     val active: Boolean get() = states.any { it.state == AckState.SENT }
 }
 
-data class RecipientState(val recipient: String, val state: String, val label: String = recipient.take(6) + "…")
+data class RecipientState(
+    val recipient: String,
+    val state: String,
+    val label: String = recipient.take(6) + "…",
+    /** What they replied ("On my way"…), if anything. */
+    val reply: String = "",
+)
 
 data class OutboxUiState(val rows: List<OutboxRow> = emptyList())
 
@@ -46,8 +52,9 @@ class OutboxViewModel @Inject constructor(
         val rows = runCatching {
             val names = contacts.list().associate { it.hash to it.name }
             outbox.pending().sortedByDescending { it.createdAt }.map { a ->
+                val replies = outbox.replies(a.alertId)
                 val states = outbox.ackStates(a.alertId).map { (r, s) ->
-                    RecipientState(r, s, names[r] ?: (r.take(6) + "…"))
+                    RecipientState(r, s, names[r] ?: (r.take(6) + "…"), replies[r].orEmpty())
                 }
                 OutboxRow(a.alertId, a.severity, a.text, states)
             }

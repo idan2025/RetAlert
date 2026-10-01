@@ -23,6 +23,8 @@ import network.retalert.reticulum.lxmf.LxmfRouter
  */
 interface IncomingNotifier {
     fun onAlert(msg: IncomingMessage)
+    /** A recipient of one of our alerts replied ("On my way"…). */
+    fun onReply(alertId: String, sourceHex: String, senderName: String, text: String) {}
 }
 
 /**
@@ -52,7 +54,12 @@ class IncomingWiring(
             ackTracker.onAck(id, src)
         }
         val replyCb: (alertId: String, sourceHex: String, reply: String) -> Unit = { id, src, reply ->
+            val ours = ackTracker.stateOf(id, src) != null
             ackTracker.onAck(id, src, reply)
+            if (ours && reply.isNotBlank()) {
+                val name = contacts.get(src)?.name ?: discover.get(src)?.displayName?.takeIf { it.isNotBlank() } ?: src.take(8)
+                runCatching { notifier.onReply(id, src, name, reply) }
+            }
         }
         // Alerts are recorded in the inbox; the user-facing notification comes
         // only from the bypass-silent hook (alerts), not for acks/replies/geo.

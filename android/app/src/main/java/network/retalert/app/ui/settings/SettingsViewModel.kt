@@ -63,6 +63,7 @@ data class SettingsUiState(
     val alarmMinutes: Int = AlarmSound.DEFAULT_RING_MINUTES,
     val legacyWire: Boolean = false,
     val displayName: String = "",
+    val quickReplies: List<String> = network.retalert.domain.DEFAULT_QUICK_REPLIES,
     val flash: String = "",
 )
 
@@ -125,6 +126,7 @@ class SettingsViewModel @Inject constructor(
             alarmMinutes = s.alarmMinutes,
             legacyWire = s.legacyWire,
             displayName = s.displayName,
+            quickReplies = s.quickReplies.toList(),
             useSharedInstance = s.useSharedInstance,
             panicShareLocation = s.panicShareLocation,
             liveShareIntervalS = s.liveShareIntervalS,
@@ -191,6 +193,12 @@ class SettingsViewModel @Inject constructor(
         publish(s, if (n.isEmpty()) "Name cleared" else "Others now see you as \"$n\"")
     }
 
+    fun setQuickReplies(items: List<String>) = mutate { s ->
+        val cleaned = network.retalert.domain.normalizeQuickReplies(items)
+        s.quickReplies = if (cleaned.isEmpty()) network.retalert.domain.DEFAULT_QUICK_REPLIES.toMutableList() else cleaned
+        "Quick replies saved"
+    }
+
     fun setLegacyWire(v: Boolean) = mutate { it.legacyWire = v; null }
     fun setAlarmMinutes(minutes: Int) = mutate { it.alarmMinutes = minutes.coerceIn(1, 60); null }
     fun stopPreview() = alarmPlayer.stopPreview()
@@ -208,7 +216,7 @@ class SettingsViewModel @Inject constructor(
             IncomingMessage(
                 sourceHash = "0".repeat(32), text = "Test alert — this is how an incoming alert rings.",
                 timestamp = System.currentTimeMillis() / 1000.0, kind = "alert", severity = "test",
-                alertId = "test-alarm",
+                alertId = network.retalert.app.platform.QuickReplier.TEST_ALERT_ID,
             ),
         )
     }
