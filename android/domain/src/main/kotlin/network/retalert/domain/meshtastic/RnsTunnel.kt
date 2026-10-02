@@ -5,7 +5,8 @@ import kotlin.math.abs
 /**
  * Kotlin port of the RNS-over-Meshtastic tunnel protocol
  * (landandair/RNS_Over_Meshtastic `Meshtastic_Interface.py`), wire-compatible
- * with it so RetAlert talks to Python RNS nodes running that interface.
+ * with it so RetAlert talks to Python RNS nodes running that interface (and to
+ * Columba, which carries the same port).
  *
  * An RNS packet (up to [HW_MTU] bytes) is split into fragments that each fit
  * one Meshtastic packet: `[index u8][pos i8] + chunk`, positions counting
@@ -58,24 +59,24 @@ class RnsTunnel(private val maxPayload: Int = MAX_PAYLOAD) {
     /** Next payload to put on air, or null when idle. */
     fun next(): Outgoing? {
         while (queue.isNotEmpty()) {
-            when (val item = queue.removeFirst()) {
-                is Item.Raw -> return Outgoing(item.payload, MeshProto.BROADCAST)
-                is Item.Fragment -> {
-                    val set = sent[item.index] ?: continue
-                    val frag = set[item.pos] ?: continue
-                    return Outgoing(frag, set.dest)
-                }
-            }
+            resolve(queue.removeFirst())?.let { return it }
         }
         return null
     }
+
+    /** The payload for a queued item, or null when its fragment is gone (index reused). */
+    private fun resolve(item: Item): Outgoing? =
+        when (item) {
+            is Item.Raw -> Outgoing(item.payload, MeshProto.BROADCAST)
+            is Item.Fragment -> sent[item.index]?.let { set -> set[item.pos]?.let { Outgoing(it, set.dest) } }
+        }
 
     /**
      * Consume one tunnel payload from node [from]. Returns a reassembled RNS
      * packet when this fragment completed one, else null.
      */
     fun receive(from: Long, payload: ByteArray): ByteArray? {
-        if (payload.size >= 3 + HEADER && payload[0] == 'R'.code.toByte() && payload[1] == 'E'.code.toByte() && payload[2] == 'Q'.code.toByte()) {
+        if (isRequest(payload)) {
             val (idx, pos) = header(payload, 3)
             queue.addFirst(Item.Fragment(idx, pos))
             return null
@@ -111,6 +112,9 @@ class RnsTunnel(private val maxPayload: Int = MAX_PAYLOAD) {
         }
         return data
     }
+
+    private fun isRequest(payload: ByteArray): Boolean =
+        payload.size >= REQ.size + HEADER && payload.copyOfRange(0, REQ.size).contentEquals(REQ)
 
     /** Link traffic (header byte `00..11..`, i.e. HEADER_1 to a LINK destination)
      *  tells us which node a link lives behind, so replies can go unicast. */

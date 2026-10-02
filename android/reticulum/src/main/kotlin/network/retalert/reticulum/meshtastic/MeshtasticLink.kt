@@ -160,11 +160,11 @@ class MeshtasticBleLink(private val context: Context, private val address: Strin
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) @Suppress("DEPRECATION") complete(status, c.value ?: ByteArray(0))
         }
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
-            drainSignal.offer(Unit)
+            drainSignal.put(Unit)
         }
         @Deprecated("Deprecated in API 33")
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) drainSignal.offer(Unit)
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) drainSignal.put(Unit)
         }
 
         private fun complete(status: Int, value: Any?) {
@@ -181,40 +181,55 @@ class MeshtasticBleLink(private val context: Context, private val address: Strin
         pending = null
         drainSignal.clear()
         this.onClosed = onClosed
-        val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
-            ?: throw IOException("this phone has no Bluetooth")
-        if (!adapter.isEnabled) throw IOException("Bluetooth is off")
-        val device = adapter.getRemoteDevice(address.uppercase())
-        val g = device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
-            ?: throw IOException("could not start a Bluetooth connection")
+        val g = connectGatt()
         gatt = g
         try {
             connected.get(CONNECT_TIMEOUT_S, TimeUnit.SECONDS)
-            // Large MTU so a whole FromRadio fits one read (Meshtastic asks for 512 too).
-            runCatching { op { g.requestMtu(512) } }
-            op { g.discoverServices() }
-            val svc = g.getService(SERVICE) ?: throw IOException("not a Meshtastic node (service missing)")
-            toRadio = svc.getCharacteristic(TO_RADIO) ?: throw IOException("ToRadio missing")
-            fromRadio = svc.getCharacteristic(FROM_RADIO) ?: throw IOException("FromRadio missing")
-            svc.getCharacteristic(FROM_NUM)?.let { fromNum ->
-                g.setCharacteristicNotification(fromNum, true)
-                fromNum.getDescriptor(CCCD)?.let { d ->
-                    op {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            g.writeDescriptor(d, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == BluetoothGatt.GATT_SUCCESS
-                        } else {
-                            @Suppress("DEPRECATION")
-                            d.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                            @Suppress("DEPRECATION")
-                            g.writeDescriptor(d)
-                        }
-                    }
-                }
-            }
+            setUp(g)
+        } catch (e: IOException) {
+            close()
+            throw e
         } catch (e: Exception) {
             close()
-            throw if (e is IOException) e else IOException(e.cause?.message ?: e.message ?: "Bluetooth connect failed", e)
+            throw IOException(e.cause?.message ?: e.message ?: "Bluetooth connect failed", e)
         }
+        startReader(mySession, onFromRadio)
+    }
+
+    private fun connectGatt(): BluetoothGatt {
+        val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
+            ?: linkError("this phone has no Bluetooth")
+        if (!adapter.isEnabled) linkError("Bluetooth is off")
+        val device = adapter.getRemoteDevice(address.uppercase())
+        return device.connectGatt(context, false, callback, BluetoothDevice.TRANSPORT_LE)
+            ?: linkError("could not start a Bluetooth connection")
+    }
+
+    /** MTU, service discovery, characteristics and FromNum notifications. */
+    private fun setUp(g: BluetoothGatt) {
+        // Large MTU so a whole FromRadio fits one read (Meshtastic asks for 512 too).
+        runCatching { op { g.requestMtu(512) } }
+        op { g.discoverServices() }
+        val svc = g.getService(SERVICE) ?: linkError("not a Meshtastic node (service missing)")
+        toRadio = svc.getCharacteristic(TO_RADIO) ?: linkError("ToRadio missing")
+        fromRadio = svc.getCharacteristic(FROM_RADIO) ?: linkError("FromRadio missing")
+        val fromNum = svc.getCharacteristic(FROM_NUM) ?: return
+        g.setCharacteristicNotification(fromNum, true)
+        val d = fromNum.getDescriptor(CCCD) ?: return
+        op {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                g.writeDescriptor(d, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE) == BluetoothGatt.GATT_SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                d.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                @Suppress("DEPRECATION")
+                g.writeDescriptor(d)
+            }
+        }
+    }
+
+    /** Drain FromRadio on each FromNum notification (and every few seconds regardless). */
+    private fun startReader(mySession: Int, onFromRadio: (ByteArray) -> Unit) {
         thread(name = "meshtastic-ble-rx", isDaemon = true) {
             while (!closed && session == mySession) {
                 // Poll now and then even without a notification: cheap, and robust
@@ -222,16 +237,20 @@ class MeshtasticBleLink(private val context: Context, private val address: Strin
                 drainSignal.poll(DRAIN_POLL_S, TimeUnit.SECONDS)
                 if (closed || session != mySession) break
                 try {
-                    while (!closed && session == mySession) {
-                        val bytes = op { gatt?.readCharacteristic(fromRadio) == true } as ByteArray
-                        if (bytes.isEmpty()) break
-                        onFromRadio(bytes)
-                    }
+                    drainFromRadio(mySession, onFromRadio)
                 } catch (e: Exception) {
                     if (!closed) Log.w(TAG, "FromRadio read failed", e)
                     fail(e, mySession)
                 }
             }
+        }
+    }
+
+    private fun drainFromRadio(mySession: Int, onFromRadio: (ByteArray) -> Unit) {
+        while (!closed && session == mySession) {
+            val bytes = op { gatt?.readCharacteristic(fromRadio) == true } as ByteArray
+            if (bytes.isEmpty()) return
+            onFromRadio(bytes)
         }
     }
 
@@ -250,7 +269,7 @@ class MeshtasticBleLink(private val context: Context, private val address: Strin
                 g.writeCharacteristic(c)
             }
         }
-        drainSignal.offer(Unit)
+        drainSignal.put(Unit)
     }
 
     /** Run one GATT operation and wait for its callback. */
@@ -264,7 +283,7 @@ class MeshtasticBleLink(private val context: Context, private val address: Strin
         } catch (e: java.util.concurrent.ExecutionException) {
             throw e.cause ?: e
         } catch (e: java.util.concurrent.TimeoutException) {
-            throw IOException("Bluetooth operation timed out")
+            throw IOException("Bluetooth operation timed out", e)
         } finally {
             pending = null
         }
@@ -278,7 +297,7 @@ class MeshtasticBleLink(private val context: Context, private val address: Strin
 
     override fun close() {
         closed = true
-        drainSignal.offer(Unit)
+        drainSignal.put(Unit)
         runCatching { gatt?.disconnect() }
         runCatching { gatt?.close() }
         gatt = null
@@ -296,3 +315,5 @@ class MeshtasticBleLink(private val context: Context, private val address: Strin
         val CCCD: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
     }
 }
+
+private fun linkError(message: String): Nothing = throw IOException(message)

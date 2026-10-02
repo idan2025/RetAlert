@@ -94,7 +94,7 @@ class MeshtasticInterface(
         try {
             done.get(CONFIG_TIMEOUT_S, TimeUnit.SECONDS)
         } catch (e: Exception) {
-            throw IOException("node did not send its configuration")
+            throw IOException("node did not send its configuration", e)
         }
         val ch = channelName
         if (ch == null) {
@@ -168,6 +168,7 @@ class MeshtasticInterface(
         scope.cancel()
         linkDown?.complete(null)
         link.close()
+        setOnline(false)
     }
 
     override fun toString(): String = "MeshtasticInterface[$name]"
