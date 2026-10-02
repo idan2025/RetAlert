@@ -1,7 +1,7 @@
 # RetAlert roadmap
 
 Ideas for what to build next, ordered by how much they help in a real
-emergency. Current release: **0.5.0**.
+emergency. Current release: **0.5.1**.
 
 ## Highest value
 

@@ -36,7 +36,8 @@ Download `app-release.apk` from the [latest release](../../releases), allow
   [RNS_Over_Meshtastic](https://github.com/landandair/RNS_Over_Meshtastic),
   wire-compatible with its Python interface. Put it on a private secondary
   channel with a low hop limit so it stays off the public mesh. The node must
-  not be connected to the Meshtastic app at the same time.
+  not be connected to the Meshtastic app at the same time. For a desktop or
+  Pi gateway, [`rnsd/`](rnsd/) has the matching interface for `rnsd`.
 - Receive-only-from-contacts filter with per-address allow/block.
 
 Messages read normally in other LXMF apps: an alert arrives in Columba,
