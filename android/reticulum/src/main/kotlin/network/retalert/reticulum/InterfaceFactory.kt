@@ -2,6 +2,7 @@ package network.retalert.reticulum
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -98,7 +99,11 @@ internal class InterfaceFactory(private val context: Context) {
         }
     }
 
-    /** RNode over USB serial or Bluetooth Classic (SPP). Blocks while connecting. */
+    /**
+     * RNode over USB serial or Bluetooth. Over Bluetooth, current RNodes (nRF52,
+     * ESP32-S3) only do Bluetooth LE; older ESP32 ones only Classic (SPP). The
+     * paired device's type decides. Blocks while connecting.
+     */
     @SuppressLint("MissingPermission")
     private fun createRNode(name: String, c: IfaceConfig): Interface {
         if (rnodeLink(c) == MeshLink.USB) {
@@ -110,6 +115,10 @@ internal class InterfaceFactory(private val context: Context) {
             ?: error("this phone has no Bluetooth")
         check(adapter.isEnabled) { "Bluetooth is off" }
         val device = adapter.getRemoteDevice(c.param(IfaceParam.BT_ADDRESS).uppercase())
+        if (device.type != BluetoothDevice.DEVICE_TYPE_CLASSIC) {
+            val ble = RNodeBle.open(context, device.address)
+            return rnodeOver(name, c, ble.input, ble.output)
+        }
         runCatching { adapter.cancelDiscovery() }
         val socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
         runCatching { socket.connect() }.onFailure {
