@@ -29,15 +29,16 @@ Download `app-release.apk` from the [latest release](../../releases), allow
   file) and the volume. The listener restarts after a reboot. Settings
   has a checklist (notifications, DND access, battery) and a test alarm.
 - **Interfaces screen**: AutoInterface (LAN), TCP client and server, UDP,
-  **RNode** LoRa (Bluetooth or USB), **Meshtastic** nodes (Bluetooth, Wi-Fi
-  or USB), Bluetooth LE mesh and I2P — or a **shared instance** from Columba,
-  Sideband or MeshChat on the same phone. USB needs an OTG cable.
-- **RNS over Meshtastic**: a native port of
-  [RNS_Over_Meshtastic](https://github.com/landandair/RNS_Over_Meshtastic),
-  wire-compatible with its Python interface. Put it on a private secondary
-  channel with a low hop limit so it stays off the public mesh. The node must
-  not be connected to the Meshtastic app at the same time. For a desktop or
-  Pi gateway, [`rnsd/`](rnsd/) has the matching interface for `rnsd`.
+  **RNode** LoRa (Bluetooth or USB), Bluetooth LE mesh and I2P — or a
+  **shared instance** from Columba, Sideband or MeshChat on the same phone.
+  USB needs an OTG cable.
+- **No Meshtastic**: versions up to 0.5.1 could run Reticulum over Meshtastic
+  nodes. It was removed: over-the-air tests showed seconds to tens of seconds
+  per message, and stalls once the channel gets busy (Meshtastic floods every
+  packet and throttles itself as channel use rises). That is too slow and
+  unreliable for alerts. For LoRa use an RNode, which carries the same radio
+  settings without those limits. A Meshtastic interface saved by an older
+  version stays in the list, inactive, until you delete it.
 - Receive-only-from-contacts filter with per-address allow/block.
 
 Messages read normally in other LXMF apps: an alert arrives in Columba,

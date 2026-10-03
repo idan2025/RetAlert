@@ -35,7 +35,7 @@ reticulumKt = "3a4a696b9a"
 lxmfKt = "composite"
 
 [libraries]
-# USB serial (CDC-ACM, CP210x, CH34x, FTDI…) for USB Meshtastic nodes and RNodes; MIT.
+# USB serial (CDC-ACM, CP210x, CH34x, FTDI…) for USB RNodes; MIT.
 usb-serial-android = { group = "com.github.mik3y", name = "usb-serial-for-android", version.ref = "usbSerial" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }

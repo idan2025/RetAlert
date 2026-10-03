@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- USB serial chips and boards used by Meshtastic nodes and RNodes. Plugging
+<!-- USB serial chips and boards used by RNodes. Plugging
      one in offers to open RetAlert; "always" grants USB access for good. -->
 <resources>
     <usb-device vendor-id="4292" />   <!-- 0x10c4 Silicon Labs CP210x -->

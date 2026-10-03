@@ -65,7 +65,6 @@ import network.retalert.domain.IfaceConfig
 import network.retalert.domain.IfaceParam
 import network.retalert.domain.IfaceType
 import network.retalert.domain.MeshLink
-import network.retalert.domain.MeshPort
 import network.retalert.domain.rnodeLink
 import network.retalert.reticulum.UsbSerial
 import android.content.BroadcastReceiver
@@ -177,7 +176,6 @@ private fun defaultName(type: String) = when (type) {
     IfaceType.I2P -> "I2P"
     IfaceType.UDP -> "UDP broadcast"
     IfaceType.TCP_SERVER -> "TCP server"
-    IfaceType.MESHTASTIC -> "Meshtastic"
     else -> ""
 }
 
@@ -206,8 +204,6 @@ private fun summary(c: IfaceConfig): String = when (c.type) {
     IfaceType.TCP_SERVER -> " · port ${c.param(IfaceParam.PORT)}"
     IfaceType.UDP -> " · ${c.param(IfaceParam.LISTEN_PORT)} → ${c.param(IfaceParam.FORWARD_IP)}:${c.param(IfaceParam.FORWARD_PORT)}"
     IfaceType.RNODE -> " · ${(c.longParam(IfaceParam.FREQUENCY) ?: 0) / 1e6} MHz SF${c.param(IfaceParam.SF)}"
-    IfaceType.MESHTASTIC -> " · channel ${c.param(IfaceParam.CHANNEL)} · " +
-        if (c.param(IfaceParam.LINK) == MeshLink.TCP) c.param(IfaceParam.HOST) else "Bluetooth"
     else -> ""
 }
 
@@ -238,7 +234,6 @@ private fun typeHelp(t: String) = when (t) {
     IfaceType.TCP_SERVER -> "Let other nodes connect to this phone (same network, or port-forwarded)."
     IfaceType.UDP -> "Broadcast to Reticulum nodes on the local network over UDP."
     IfaceType.RNODE -> "LoRa radio: an RNode paired over Bluetooth Classic. Works with no internet."
-    IfaceType.MESHTASTIC -> "Use a Meshtastic radio as a LoRa link for Reticulum (compatible with RNS_Over_Meshtastic)."
     IfaceType.BLE -> "Phone-to-phone Bluetooth mesh with nearby Reticulum apps (e.g. Columba)."
     IfaceType.I2P -> "Anonymous overlay. Needs an I2P router app with SAM enabled on this phone."
     else -> ""
@@ -323,7 +318,6 @@ private fun EditDialog(
                         NumField("Coding rate (5–8)", p, IfaceParam.CR)
                         NumField("TX power (dBm)", p, IfaceParam.TX_POWER)
                     }
-                    IfaceType.MESHTASTIC -> MeshtasticFields(p, btGranted, usb, onAllowUsb)
                     IfaceType.BLE -> {
                         if (!btGranted) Hint("Allow Bluetooth access (nearby devices) for the mesh to work.")
                         Hint("Connects to nearby phones running a Reticulum BLE mesh (Columba and others). Short range, no internet needed.")
@@ -453,56 +447,7 @@ private fun bluetoothPermissions(c: IfaceConfig): List<String> = when {
     Build.VERSION.SDK_INT < Build.VERSION_CODES.S -> emptyList()
     c.type == IfaceType.BLE -> listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.BLUETOOTH_CONNECT)
     c.type == IfaceType.RNODE && rnodeLink(c) == MeshLink.BLE -> listOf(Manifest.permission.BLUETOOTH_CONNECT)
-    c.type == IfaceType.MESHTASTIC && c.param(IfaceParam.LINK) == MeshLink.BLE -> listOf(Manifest.permission.BLUETOOTH_CONNECT)
     else -> emptyList()
-}
-
-@Composable
-private fun MeshtasticFields(p: MutableMap<String, String>, btGranted: Boolean, usb: List<UsbOption>, onAllowUsb: (String) -> Unit) {
-    val link = p[IfaceParam.LINK] ?: MeshLink.BLE
-    Text("Connect to the node over", style = MaterialTheme.typography.bodyMedium)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        FilterChip(selected = link == MeshLink.BLE, onClick = { p[IfaceParam.LINK] = MeshLink.BLE }, label = { Text("Bluetooth") })
-        FilterChip(selected = link == MeshLink.TCP, onClick = { p[IfaceParam.LINK] = MeshLink.TCP }, label = { Text("Wi-Fi (TCP)") })
-        FilterChip(selected = link == MeshLink.USB, onClick = { p[IfaceParam.LINK] = MeshLink.USB }, label = { Text("USB") })
-    }
-    if (link == MeshLink.USB) {
-        UsbDevicePicker(p, usb, onAllowUsb)
-        Hint("Disconnect the Meshtastic app from this node — a node talks to one app at a time.")
-    } else if (link == MeshLink.BLE) {
-        if (btGranted) {
-            PairedDevicePicker(p[IfaceParam.BT_ADDRESS].orEmpty(), prefer = Regex("meshtastic|_[0-9a-f]{4}$", RegexOption.IGNORE_CASE)) {
-                p[IfaceParam.BT_ADDRESS] = it
-            }
-        } else Hint("Allow Bluetooth access to pick your node.")
-        Hint(
-            "Pair the node in Android's Bluetooth settings first (PIN on its screen, or 123456). " +
-                "Disconnect the Meshtastic app from it — a node talks to one app at a time.",
-        )
-    } else {
-        Field("Node IP address", p[IfaceParam.HOST].orEmpty(), "192.168.1.50") { p[IfaceParam.HOST] = it }
-        NumField("Port", p, IfaceParam.PORT)
-        Hint("The node needs Wi-Fi enabled in its Network settings (API port 4403).")
-    }
-    NumField("Channel index (0 = primary)", p, IfaceParam.CHANNEL)
-    Hint(
-        "Use a private channel: add a secondary channel (e.g. \"RNS\", random key) with the same name and key on every node " +
-            "you want to reach. Reticulum traffic then never touches the public channel, and other users can't read it.",
-    )
-    NumField("Hop limit (0–7)", p, IfaceParam.HOP_LIMIT)
-    Hint("How many Meshtastic nodes may relay each packet. Keep it low (1) so the tunnel doesn't load the wider mesh.")
-    Text("Meshtastic port", style = MaterialTheme.typography.bodyMedium)
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        FilterChip(
-            selected = p[IfaceParam.MESH_PORT] != MeshPort.PRIVATE, onClick = { p[IfaceParam.MESH_PORT] = MeshPort.RETICULUM },
-            label = { Text("Reticulum tunnel (76)") },
-        )
-        FilterChip(
-            selected = p[IfaceParam.MESH_PORT] == MeshPort.PRIVATE, onClick = { p[IfaceParam.MESH_PORT] = MeshPort.PRIVATE },
-            label = { Text("Private app (256)") },
-        )
-    }
-    Hint("All nodes must use the same port. 76 matches the RNS_Over_Meshtastic Python interface.")
 }
 
 @Composable

@@ -29,7 +29,6 @@ import network.retalert.domain.SettingsReceiveSettings
 import network.retalert.domain.TransportIntelligence
 import network.retalert.domain.normalizeHash
 import network.retalert.reticulum.lxmf.LxmfRouter
-import network.retalert.reticulum.meshtastic.MeshtasticInterface
 import network.reticulum.Reticulum
 import network.reticulum.identity.Identity
 import network.reticulum.interfaces.Interface
@@ -458,13 +457,7 @@ class ReticulumEngine(
         val ifaces = runCatching {
             transportIntelligence.classifyInterfaces().map { InterfaceStatus(it.name, it.tier, it.online) }
         }.getOrDefault(emptyList())
-        // Interfaces that reconnect by themselves report why they're down.
-        val runtime = synchronized(lock) {
-            ownInterfaces.mapNotNull { (id, e) ->
-                val m = e.second as? MeshtasticInterface ?: return@mapNotNull null
-                m.lastError?.takeIf { !m.online.value }?.let { id to it }
-            }.toMap() + ifaceErrors
-        }
+        val runtime = synchronized(lock) { ifaceErrors.toMap() }
         _status.update { it.copy(interfaces = ifaces, ifaceErrors = runtime, deliveryHash = lxmf.deliveryHashHex) }
     }
 
