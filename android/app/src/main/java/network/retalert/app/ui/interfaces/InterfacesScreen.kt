@@ -233,7 +233,7 @@ private fun typeHelp(t: String) = when (t) {
     IfaceType.TCP_CLIENT -> "Connect to a Reticulum node or transport over the internet."
     IfaceType.TCP_SERVER -> "Let other nodes connect to this phone (same network, or port-forwarded)."
     IfaceType.UDP -> "Broadcast to Reticulum nodes on the local network over UDP."
-    IfaceType.RNODE -> "LoRa radio: an RNode paired over Bluetooth Classic. Works with no internet."
+    IfaceType.RNODE -> "LoRa radio: an RNode over Bluetooth or USB. Works with no internet."
     IfaceType.BLE -> "Phone-to-phone Bluetooth mesh with nearby Reticulum apps (e.g. Columba)."
     IfaceType.I2P -> "Anonymous overlay. Needs an I2P router app with SAM enabled on this phone."
     else -> ""
@@ -299,7 +299,7 @@ private fun EditDialog(
                         } else {
                             if (btGranted) PairedDevicePicker(p[IfaceParam.BT_ADDRESS].orEmpty(), prefer = Regex("rnode", RegexOption.IGNORE_CASE)) { p[IfaceParam.BT_ADDRESS] = it }
                             else Hint("Allow Bluetooth access to pick your RNode.")
-                            Hint("Pair the RNode in Android's Bluetooth settings first.")
+                            Hint("Pair the RNode in Android's Bluetooth settings first (enter the PIN it shows, if it has a screen). Bluetooth LE and Classic RNodes both work.")
                         }
                         Hint("All nodes that should hear each other need the same radio settings.")
                         val mhz = (p[IfaceParam.FREQUENCY]?.toLongOrNull() ?: 0L) / 1_000_000.0

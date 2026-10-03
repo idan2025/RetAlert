@@ -55,7 +55,7 @@ object IfaceParam {
     const val PEERS = "peers"              // I2P: comma-separated b32 addresses
     const val CONNECTABLE = "connectable"  // I2P: "true" | "false"
     const val GROUP_ID = "group_id"        // AutoInterface
-    const val LINK = "link"                // RNode: "ble" (Bluetooth Classic, default) | "usb"
+    const val LINK = "link"                // RNode: "ble" (Bluetooth, LE or Classic by device; default) | "usb"
     const val USB_DEVICE = "usb_device"    // "vid:pid" in hex, or empty = first USB serial device
 }
 

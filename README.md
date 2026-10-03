@@ -29,7 +29,7 @@ Download `app-release.apk` from the [latest release](../../releases), allow
   file) and the volume. The listener restarts after a reboot. Settings
   has a checklist (notifications, DND access, battery) and a test alarm.
 - **Interfaces screen**: AutoInterface (LAN), TCP client and server, UDP,
-  **RNode** LoRa (Bluetooth or USB), Bluetooth LE mesh and I2P — or a
+  **RNode** LoRa (Bluetooth LE or Classic, or USB), Bluetooth LE mesh and I2P — or a
   **shared instance** from Columba, Sideband or MeshChat on the same phone.
   USB needs an OTG cable.
 - **No Meshtastic**: versions up to 0.5.1 could run Reticulum over Meshtastic
