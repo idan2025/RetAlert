@@ -58,12 +58,7 @@ sender's phone — for when making noise is dangerous.
 Reinstalling or changing phones creates a new address, so everyone must re-add
 you. Add an encrypted export/import of identity, contacts, groups and presets.
 
-### 9. Meshtastic private-channel helper
-Generate the RetAlert secondary channel (name + random key) once and share it
-as a QR code / Meshtastic channel URL, so every node gets the same settings
-without manual setup.
-
-### 10. Hebrew interface
+### 9. Hebrew interface
 A real translation with right-to-left layout done properly (the UI is forced
 left-to-right today because it is English-only).
 

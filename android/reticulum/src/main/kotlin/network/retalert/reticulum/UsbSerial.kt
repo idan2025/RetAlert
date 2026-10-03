@@ -13,7 +13,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 
-/** A USB serial device attached to the phone (a Meshtastic node, an RNode…). */
+/** A USB serial device attached to the phone (an RNode). */
 data class UsbSerialDevice(
     /** "vid:pid" in hex, as stored in the interface config. */
     val spec: String,
@@ -24,8 +24,8 @@ data class UsbSerialDevice(
 
 /**
  * USB serial over OTG, via usb-serial-for-android (CDC-ACM for nRF52 /
- * ESP32-S3 native USB, plus CP210x, CH34x, FTDI…). Opens at 115200 8N1 — the
- * speed of both the Meshtastic serial API and RNode firmware.
+ * ESP32-S3 native USB, plus CP210x, CH34x, FTDI…). Opens at 115200 8N1, the
+ * speed RNode firmware uses.
  */
 object UsbSerial {
     const val ACTION_PERMISSION = "network.retalert.action.USB_PERMISSION"

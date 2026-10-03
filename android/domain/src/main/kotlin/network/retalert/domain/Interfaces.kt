@@ -10,9 +10,15 @@ object IfaceType {
     const val RNODE = "rnode"
     const val BLE = "ble"
     const val I2P = "i2p"
-    const val MESHTASTIC = "meshtastic"
 
-    val ALL = listOf(AUTO, TCP_CLIENT, TCP_SERVER, UDP, RNODE, MESHTASTIC, BLE, I2P)
+    val ALL = listOf(AUTO, TCP_CLIENT, TCP_SERVER, UDP, RNODE, BLE, I2P)
+
+    /** Types older versions could save, with why they no longer run. A saved one stays
+     *  in the list, inactive, showing this reason until the user deletes it. */
+    val REMOVED = mapOf(
+        "meshtastic" to "Meshtastic support was removed: it was too slow and unreliable for alerts. " +
+            "Delete this interface and use an RNode for LoRa.",
+    )
 
     fun label(type: String): String = when (type) {
         AUTO -> "AutoInterface (LAN)"
@@ -22,7 +28,7 @@ object IfaceType {
         RNODE -> "RNode LoRa"
         BLE -> "Bluetooth LE mesh"
         I2P -> "I2P"
-        MESHTASTIC -> "Meshtastic node"
+        "meshtastic" -> "Meshtastic node (removed)"
         else -> type
     }
 
@@ -49,16 +55,13 @@ object IfaceParam {
     const val PEERS = "peers"              // I2P: comma-separated b32 addresses
     const val CONNECTABLE = "connectable"  // I2P: "true" | "false"
     const val GROUP_ID = "group_id"        // AutoInterface
-    const val LINK = "link"                // Meshtastic: "ble" | "tcp" | "usb"; RNode: "ble" (Bluetooth Classic, default) | "usb"
+    const val LINK = "link"                // RNode: "ble" (Bluetooth Classic, default) | "usb"
     const val USB_DEVICE = "usb_device"    // "vid:pid" in hex, or empty = first USB serial device
-    const val CHANNEL = "channel"          // Meshtastic channel index 0-7
-    const val MESH_PORT = "mesh_port"      // Meshtastic: "reticulum" (76) | "private" (256)
-    const val HOP_LIMIT = "hop_limit"      // Meshtastic 0-7
 }
 
+/** How an RNode is attached. Values are persisted. */
 object MeshLink {
     const val BLE = "ble"
-    const val TCP = "tcp"
     const val USB = "usb"
 }
 
@@ -70,10 +73,6 @@ fun isUsbSpec(spec: String): Boolean = spec.isEmpty() || USB_SPEC_RE.matches(spe
 /** RNodes default to Bluetooth (configs saved before USB support have no link). */
 fun rnodeLink(c: IfaceConfig): String = if (c.param(IfaceParam.LINK) == MeshLink.USB) MeshLink.USB else MeshLink.BLE
 
-object MeshPort {
-    const val RETICULUM = "reticulum"
-    const val PRIVATE = "private"
-}
 
 /**
  * One user-configured interface. [params] holds the type-specific fields as
@@ -110,15 +109,6 @@ fun defaultParams(type: String): Map<String, String> = when (type) {
         IfaceParam.CR to "5",
     )
     IfaceType.I2P -> mapOf(IfaceParam.CONNECTABLE to "false")
-    // Python RNS_Over_Meshtastic defaults: tunnel port, one hop. Channel 1 =
-    // first secondary channel, so the tunnel stays off the public channel.
-    IfaceType.MESHTASTIC -> mapOf(
-        IfaceParam.LINK to MeshLink.BLE,
-        IfaceParam.PORT to "4403",
-        IfaceParam.CHANNEL to "1",
-        IfaceParam.MESH_PORT to MeshPort.RETICULUM,
-        IfaceParam.HOP_LIMIT to "1",
-    )
     else -> emptyMap()
 }
 
@@ -130,6 +120,7 @@ private val LORA_BANDWIDTHS = setOf(
 
 /** Null when [c] is usable, else a user-facing reason. */
 fun validateIface(c: IfaceConfig): String? {
+    IfaceType.REMOVED[c.type]?.let { return it }
     if (c.type !in IfaceType.ALL) return "unknown interface type '${c.type}'"
     if (c.name.isBlank()) return "give the interface a name"
     fun port(key: String, what: String): String? =
@@ -155,17 +146,6 @@ fun validateIface(c: IfaceConfig): String? {
                 c.intParam(IfaceParam.CR) !in 5..8 -> "coding rate must be 5–8"
                 else -> null
             }
-        }
-        IfaceType.MESHTASTIC -> when {
-            c.param(IfaceParam.LINK) == MeshLink.BLE && !BT_MAC_RE.matches(c.param(IfaceParam.BT_ADDRESS)) -> "pick the paired Meshtastic node"
-            c.param(IfaceParam.LINK) == MeshLink.TCP && (c.param(IfaceParam.HOST).isEmpty() || c.param(IfaceParam.HOST).any(Char::isWhitespace)) -> "enter the node's IP address"
-            c.param(IfaceParam.LINK) == MeshLink.TCP && c.intParam(IfaceParam.PORT) !in 1..65535 -> "Port must be a port number (1–65535)"
-            c.param(IfaceParam.LINK) == MeshLink.USB && !isUsbSpec(c.param(IfaceParam.USB_DEVICE)) -> "pick the USB device"
-            c.param(IfaceParam.LINK) !in setOf(MeshLink.BLE, MeshLink.TCP, MeshLink.USB) -> "choose Bluetooth, Wi-Fi or USB"
-            c.intParam(IfaceParam.CHANNEL) !in 0..7 -> "channel must be 0–7"
-            c.intParam(IfaceParam.HOP_LIMIT) !in 0..7 -> "hop limit must be 0–7"
-            c.param(IfaceParam.MESH_PORT) !in setOf(MeshPort.RETICULUM, MeshPort.PRIVATE) -> "choose a Meshtastic port"
-            else -> null
         }
         else -> null
     }

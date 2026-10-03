@@ -10,12 +10,6 @@ import network.retalert.domain.IfaceConfig
 import network.retalert.domain.IfaceParam
 import network.retalert.domain.IfaceType
 import network.retalert.domain.MeshLink
-import network.retalert.domain.MeshPort
-import network.retalert.domain.meshtastic.MeshProto
-import network.retalert.reticulum.meshtastic.MeshtasticBleLink
-import network.retalert.reticulum.meshtastic.MeshtasticInterface
-import network.retalert.reticulum.meshtastic.MeshtasticTcpLink
-import network.retalert.reticulum.meshtastic.MeshtasticUsbLink
 import network.retalert.domain.rnodeLink
 import network.reticulum.android.ble.AndroidBLEDriver
 import network.reticulum.interfaces.Interface
@@ -46,7 +40,6 @@ internal class InterfaceFactory(private val context: Context) {
         IfaceType.RNODE -> "RNodeInterface ${c.name}"
         IfaceType.BLE -> "BLEInterface ${c.name}"
         IfaceType.I2P -> "I2PInterface ${c.name}"
-        IfaceType.MESHTASTIC -> "MeshtasticInterface ${c.name}"
         else -> c.name
     }
 
@@ -101,24 +94,7 @@ internal class InterfaceFactory(private val context: Context) {
                 ifacNetname = netname,
                 ifacNetkey = netkey,
             )
-            IfaceType.MESHTASTIC -> {
-                val link = when (c.param(IfaceParam.LINK)) {
-                    MeshLink.TCP -> MeshtasticTcpLink(c.param(IfaceParam.HOST), c.intParam(IfaceParam.PORT) ?: 4403)
-                    MeshLink.USB -> MeshtasticUsbLink(context, c.param(IfaceParam.USB_DEVICE))
-                    else -> {
-                        requireBluetooth(Manifest.permission.BLUETOOTH_CONNECT)
-                        MeshtasticBleLink(context, c.param(IfaceParam.BT_ADDRESS))
-                    }
-                }
-                MeshtasticInterface(
-                    name = name,
-                    link = link,
-                    channelIndex = c.intParam(IfaceParam.CHANNEL) ?: 0,
-                    portnum = if (c.param(IfaceParam.MESH_PORT) == MeshPort.PRIVATE) MeshProto.PORT_PRIVATE_APP else MeshProto.PORT_RETICULUM_TUNNEL,
-                    hopLimit = c.intParam(IfaceParam.HOP_LIMIT) ?: 1,
-                )
-            }
-            else -> error("unknown interface type ${c.type}")
+            else -> error(IfaceType.REMOVED[c.type] ?: "unknown interface type ${c.type}")
         }
     }
 

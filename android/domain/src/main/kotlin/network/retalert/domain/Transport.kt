@@ -26,7 +26,6 @@ val CLASS_TIER: Map<String, String> = mapOf(
     "UDPInterface" to Tiers.MEDIUM,
     "BLEInterface" to Tiers.MEDIUM,
     "RNodeInterface" to Tiers.LOW,
-    "MeshtasticInterface" to Tiers.LOW,
     "KISSInterface" to Tiers.LOW,
     "AX25KISSInterface" to Tiers.LOW,
     "SerialInterface" to Tiers.LOW,

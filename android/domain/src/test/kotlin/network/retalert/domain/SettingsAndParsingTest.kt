@@ -68,8 +68,11 @@ class SettingsAndParsingTest {
         assertNull(validateIface(usb))
         assertNull(validateIface(usb.copy(params = usb.params + (IfaceParam.USB_DEVICE to "10c4:ea60"))))
         assertEquals("pick the USB device", validateIface(usb.copy(params = usb.params + (IfaceParam.USB_DEVICE to "junk"))))
-        val mesh = IfaceConfig("m", IfaceType.MESHTASTIC, "Mesh", params = defaultParams(IfaceType.MESHTASTIC) + (IfaceParam.LINK to MeshLink.USB))
-        assertNull(validateIface(mesh))
+        // A Meshtastic interface saved by 0.5.x stays listed but can't run, and says why.
+        val mesh = IfaceConfig("m", "meshtastic", "Mesh", params = mapOf(IfaceParam.LINK to MeshLink.USB))
+        assertEquals(IfaceType.REMOVED["meshtastic"], validateIface(mesh))
+        assertFalse("meshtastic" in IfaceType.ALL)
+        assertEquals("Meshtastic node (removed)", IfaceType.label("meshtastic"))
         val migrated = legacyInterfaces(autoInterface = false, tcpSpecs = listOf("rns.example.org:4965", "bad"))
         assertEquals(listOf(IfaceType.AUTO, IfaceType.TCP_CLIENT), migrated.map { it.type })
         assertFalse(migrated[0].enabled)

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- USB OTG for Meshtastic nodes and RNodes; not required to install. -->
+    <!-- USB OTG for RNodes; not required to install. -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <uses-permission android:name="android.permission.INTERNET" />
